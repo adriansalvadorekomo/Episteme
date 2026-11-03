@@ -1,0 +1,99 @@
+# mise — tâches essentielles du projet.
+#   mise tasks             # liste les tâches
+#   mise run <tâche>       # exécute une tâche (ex. mise run dev)
+#
+# Les tâches utilisent les outils du système (uv, node, pnpm, docker). Pour que mise
+# gère aussi leurs versions, décommenter la section [tools] puis `mise install`.
+# [tools]
+# uv = "latest"
+# node = "lts"
+# pnpm = "latest"
+
+[env]
+# Valeurs par défaut du lakehouse (surchargées par un .env si présent).
+RAG_LAKEHOUSE_BACKEND = "auto"
+RAG_S3_ENDPOINT = "http://localhost:9000"
+
+# ── Installation ────────────────────────────────────────────────────────
+[tasks.install]
+description = "Installe les dépendances Python (uv) et web (pnpm)"
+run = [
+  "uv sync",
+  "pnpm --dir web install",
+]
+
+[tasks."install:finetune"]
+description = "Ajoute l'extra fine-tuning (QLoRA : peft, trl, bitsandbytes)"
+run = "uv sync --extra finetune"
+
+# ── Lakehouse (stockage des documents) ──────────────────────────────────
+[tasks."lake:up"]
+description = "Démarre le stockage objet S3 (SeaweedFS) via Docker"
+run = "docker compose up -d"
+
+[tasks."lake:down"]
+description = "Arrête le stockage objet S3"
+run = "docker compose down"
+
+[tasks."lake:init"]
+description = "Crée le bucket, le namespace et les tables Iceberg"
+run = "uv run rag-lakehouse init"
+
+[tasks."lake:backfill"]
+description = "Migre le corpus (RAG_CORPUS_DIR) dans le lakehouse + reconstruit l'index"
+run = "uv run rag-lakehouse backfill"
+
+[tasks."lake:rebuild"]
+description = "Reconstruit l'index FAISS + le graphe depuis la table SILVER"
+run = "uv run rag-lakehouse rebuild"
+
+[tasks."lake:status"]
+description = "Affiche le backend + le nombre de documents/chunks"
+run = "uv run rag-lakehouse status"
+
+[tasks.ingest]
+description = "Ingère un ou des documents (ex. mise run ingest doc.pdf --domain data-eng)"
+run = "uv run rag-ingest"
+
+# ── Index & requêtes ────────────────────────────────────────────────────
+[tasks.build]
+description = "Construit l'index FAISS + le graphe depuis le corpus brut"
+run = "uv run rag-build"
+
+[tasks.ask]
+description = "Pose une question en CLI (ex. mise run ask \"C'est quoi un Pod ?\")"
+run = "uv run rag-ask"
+
+# ── Service (API + web) ─────────────────────────────────────────────────
+[tasks.api]
+description = "Lance l'API FastAPI sur :8000"
+run = "uv run uvicorn api.main:app --port 8000"
+
+[tasks.web]
+description = "Lance le front Astro sur :4321 (proxy /api -> :8000)"
+dir = "web"
+run = "pnpm dev"
+
+[tasks.dev]
+description = "Lance l'API + le front ensemble (Ctrl-C arrête les deux)"
+run = """
+uv run uvicorn api.main:app --port 8000 & API=$!
+trap 'kill $API 2>/dev/null' EXIT INT TERM
+pnpm --dir web dev
+"""
+
+[tasks.smoke]
+description = "Vérifie que l'API répond (health + info)"
+run = """
+curl -fsS http://localhost:8000/health && echo
+curl -fsS http://localhost:8000/info | head -c 400 && echo
+"""
+
+# ── Bonus ───────────────────────────────────────────────────────────────
+[tasks.notebook]
+description = "Ouvre Jupyter Lab (livrable)"
+run = "uv run jupyter lab"
+
+[tasks.finetune]
+description = "Fine-tuning QLoRA sur le lakehouse (arrêter l'API avant)"
+run = "uv run rag-finetune"

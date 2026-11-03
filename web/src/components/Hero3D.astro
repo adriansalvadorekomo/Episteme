@@ -1,0 +1,249 @@
+---
+// Hero 3D — nuage de points = l'espace latent (embeddings).
+//  MODE LLM : nébuleuse chaude, diffuse, qui dérive.
+//  MODE RAG : les points se réorganisent en GRAPHE de connaissances (arêtes + nœuds froids).
+// Le 3D SIGNIFIE le produit (embeddings → récupération), ce n'est pas un décor.
+// Island paresseuse : three.js est chargé dynamiquement quand le hero est visible.
+---
+
+<div class="hero-canvas-wrap" data-hero>
+  <canvas id="hero-canvas" aria-hidden="true"></canvas>
+  <div class="hero-poster" aria-hidden="true"></div>
+</div>
+
+<style>
+  .hero-canvas-wrap {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+  }
+  #hero-canvas {
+    position: absolute;
+    inset: 0;
+    inline-size: 100%;
+    block-size: 100%;
+    display: block;
+    opacity: 0;
+    transition: opacity 0.9s ease;
+  }
+  #hero-canvas.ready { opacity: 1; }
+  /* Poster statique : fond de repli tant que le WebGL n'est pas prêt (ou indispo) */
+  .hero-poster {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(42svw 42svw at 62% 42%, color-mix(in oklab, var(--accent) 22%, transparent), transparent 70%),
+      radial-gradient(30svw 30svw at 30% 64%, color-mix(in oklab, var(--accent) 10%, transparent), transparent 70%);
+    filter: blur(8px);
+    opacity: 0.8;
+    transition: opacity 0.9s ease, background 0.5s var(--ease);
+  }
+  #hero-canvas.ready + .hero-poster { opacity: 0; }
+</style>
+
+<script>
+  type Mode = 'llm' | 'rag';
+
+  const wrap = document.querySelector<HTMLElement>('[data-hero]');
+  const canvas = document.querySelector<HTMLCanvasElement>('#hero-canvas');
+  if (wrap && canvas) {
+    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let started = false;
+
+    // File d'attente : le mode peut être changé avant l'init de three.
+    (window as any).__heroMode = (window as any).__heroMode || 'llm';
+    (window as any).heroSetMode = (m: Mode) => { (window as any).__heroMode = m; };
+
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting) && !started) {
+        started = true;
+        io.disconnect();
+        init().catch(() => { /* fallback poster reste visible */ });
+      }
+    }, { rootMargin: '200px' });
+    io.observe(wrap);
+
+    async function init() {
+      const THREE = await import('three');
+
+      const COLORS = {
+        llm: new THREE.Color('#ff5a1f'),
+        rag: new THREE.Color('#16c7c7'),
+      };
+
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(58, 1, 0.1, 100);
+      camera.position.set(0, 0, 6.2);
+
+      const renderer = new THREE.WebGLRenderer({ canvas: canvas!, antialias: true, alpha: true });
+      const DPR = Math.min(window.devicePixelRatio || 1, 1.75);
+      renderer.setPixelRatio(DPR);
+
+      // ——— Géométrie : N points, deux cibles (nébuleuse / graphe) ———
+      const N = 2600;
+      const NODES = 14;
+      const neb = new Float32Array(N * 3);
+      const graph = new Float32Array(N * 3);
+      const rnd = new Float32Array(N);
+
+      // Centres des nœuds du graphe (répartis dans un volume sphérique)
+      const centers: { x: number; y: number; z: number }[] = [];
+      for (let i = 0; i < NODES; i++) {
+        const t = (i + 0.5) / NODES;
+        const phi = Math.acos(1 - 2 * t);
+        const theta = Math.PI * (1 + Math.sqrt(5)) * i;
+        const r = 2.9;
+        centers.push({ x: r * Math.sin(phi) * Math.cos(theta), y: r * Math.cos(phi) * 0.8, z: r * Math.sin(phi) * Math.sin(theta) });
+      }
+
+      for (let i = 0; i < N; i++) {
+        // nébuleuse : distribution gaussienne douce
+        const u = Math.random(), v = Math.random();
+        const rr = Math.pow(u, 0.5) * 3.6;
+        const th = v * Math.PI * 2;
+        const ph = Math.acos(2 * Math.random() - 1);
+        neb[i * 3] = rr * Math.sin(ph) * Math.cos(th);
+        neb[i * 3 + 1] = rr * Math.sin(ph) * Math.sin(th) * 0.7;
+        neb[i * 3 + 2] = rr * Math.cos(ph);
+        // graphe : attaché à un nœud, faible dispersion
+        const c = centers[i % NODES];
+        graph[i * 3] = c.x + (Math.random() - 0.5) * 0.5;
+        graph[i * 3 + 1] = c.y + (Math.random() - 0.5) * 0.5;
+        graph[i * 3 + 2] = c.z + (Math.random() - 0.5) * 0.5;
+        rnd[i] = Math.random();
+      }
+
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(neb, 3)); // requis
+      geo.setAttribute('aNeb', new THREE.BufferAttribute(neb, 3));
+      geo.setAttribute('aGraph', new THREE.BufferAttribute(graph, 3));
+      geo.setAttribute('aRnd', new THREE.BufferAttribute(rnd, 1));
+
+      const uniforms = {
+        uMix: { value: 0 },
+        uTime: { value: 0 },
+        uSize: { value: 70 },
+        uDpr: { value: DPR },
+        uColorA: { value: COLORS.llm.clone() },
+        uColorB: { value: COLORS.rag.clone() },
+      };
+
+      const mat = new THREE.ShaderMaterial({
+        uniforms,
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        vertexShader: `
+          uniform float uMix; uniform float uTime; uniform float uSize; uniform float uDpr;
+          attribute vec3 aNeb; attribute vec3 aGraph; attribute float aRnd;
+          varying float vMix;
+          void main() {
+            vMix = uMix;
+            vec3 p = mix(aNeb, aGraph, uMix);
+            float d = 1.0 - uMix;
+            p.x += sin(uTime * 0.30 + aRnd * 6.28) * 0.20 * d;
+            p.y += cos(uTime * 0.26 + aRnd * 6.28) * 0.20 * d;
+            p.z += sin(uTime * 0.22 + aRnd * 3.14) * 0.20 * d;
+            vec4 mv = modelViewMatrix * vec4(p, 1.0);
+            gl_Position = projectionMatrix * mv;
+            gl_PointSize = uSize * uDpr * (1.0 / -mv.z);
+          }`,
+        fragmentShader: `
+          precision mediump float;
+          uniform vec3 uColorA; uniform vec3 uColorB;
+          varying float vMix;
+          void main() {
+            vec2 c = gl_PointCoord - 0.5;
+            float dd = dot(c, c);
+            if (dd > 0.25) discard;
+            float a = smoothstep(0.25, 0.0, dd);
+            vec3 col = mix(uColorA, uColorB, vMix);
+            gl_FragColor = vec4(col, a * 0.9);
+          }`,
+      });
+
+      const points = new THREE.Points(geo, mat);
+      const group = new THREE.Group();
+      group.add(points);
+
+      // ——— Arêtes du graphe : chaque nœud relié à ses 2 plus proches ———
+      const edgePos: number[] = [];
+      for (let i = 0; i < NODES; i++) {
+        const dists = centers
+          .map((c, j) => ({ j, d: (c.x - centers[i].x) ** 2 + (c.y - centers[i].y) ** 2 + (c.z - centers[i].z) ** 2 }))
+          .filter((o) => o.j !== i)
+          .sort((a, b) => a.d - b.d)
+          .slice(0, 2);
+        for (const { j } of dists) {
+          edgePos.push(centers[i].x, centers[i].y, centers[i].z, centers[j].x, centers[j].y, centers[j].z);
+        }
+      }
+      const edgeGeo = new THREE.BufferGeometry();
+      edgeGeo.setAttribute('position', new THREE.Float32BufferAttribute(edgePos, 3));
+      const edgeMat = new THREE.LineBasicMaterial({ color: COLORS.rag.clone(), transparent: true, opacity: 0, depthWrite: false });
+      const edges = new THREE.LineSegments(edgeGeo, edgeMat);
+      group.add(edges);
+      scene.add(group);
+
+      // ——— Dimensionnement ———
+      function resize() {
+        const r = wrap!.getBoundingClientRect();
+        renderer.setSize(r.width, r.height, false);
+        camera.aspect = r.width / Math.max(1, r.height);
+        camera.updateProjectionMatrix();
+      }
+      resize();
+      window.addEventListener('resize', resize, { passive: true });
+
+      // ——— Parallaxe souris ———
+      const pointer = { x: 0, y: 0 };
+      if (!reduced) {
+        window.addEventListener('pointermove', (e) => {
+          pointer.x = (e.clientX / window.innerWidth - 0.5);
+          pointer.y = (e.clientY / window.innerHeight - 0.5);
+        }, { passive: true });
+      }
+
+      canvas!.classList.add('ready');
+
+      // ——— Boucle ———
+      const clock = new THREE.Clock();
+      let visible = true;
+      const vis = new IntersectionObserver((es) => { visible = es[0].isIntersecting; }, { threshold: 0 });
+      vis.observe(wrap!);
+
+      function targetMix() { return (window as any).__heroMode === 'rag' ? 1 : 0; }
+
+      function frame() {
+        const t = clock.getElapsedTime();
+        uniforms.uTime.value = t;
+        uniforms.uMix.value += (targetMix() - uniforms.uMix.value) * 0.06;
+        edgeMat.opacity = uniforms.uMix.value * 0.45;
+        // rotation de fond lente + parallaxe souris (déplacement caméra)
+        group.rotation.y += 0.0012;
+        camera.position.x += (pointer.x * 0.9 - camera.position.x) * 0.04;
+        camera.position.y += (-pointer.y * 0.6 - camera.position.y) * 0.04;
+        camera.lookAt(0, 0, 0);
+        renderer.render(scene, camera);
+        if (visible) requestAnimationFrame(frame);
+        else requestAnimationFrame(() => { if (visible) frame(); else setTimeout(frame, 180); });
+      }
+
+      if (reduced) {
+        uniforms.uMix.value = targetMix();
+        edgeMat.opacity = uniforms.uMix.value * 0.45;
+        renderer.render(scene, camera);
+        // re-render une fois au changement de mode
+        (window as any).heroSetMode = (m: Mode) => {
+          (window as any).__heroMode = m;
+          uniforms.uMix.value = targetMix();
+          edgeMat.opacity = uniforms.uMix.value * 0.45;
+          renderer.render(scene, camera);
+        };
+      } else {
+        frame();
+      }
+    }
+  }
+</script>

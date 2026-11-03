@@ -1,0 +1,7 @@
+allowBuilds:
+  esbuild: true
+  sharp: true
+# Autorise les scripts de build nécessaires (esbuild = bundler, sharp = images).
+onlyBuiltDependencies:
+  - esbuild
+  - sharp

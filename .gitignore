@@ -1,0 +1,23 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Index FAISS généré + lakehouse local (données générées au runtime)
+data/index/
+data/lakehouse/
+
+# Web (Astro / pnpm)
+web/node_modules/
+web/dist/
+web/.astro/
+
+# Caches modèles / Jupyter
+.ipynb_checkpoints/
+.cache/

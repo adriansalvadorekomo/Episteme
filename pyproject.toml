@@ -1,0 +1,50 @@
+[project]
+name = "rag-devops"
+version = "0.1.0"
+description = "Assistant LLM/RAG spécialisé DevOps & MLOps (SentenceTransformers + FAISS + Transformers)"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    # --- Corpus ingestion ---
+    "pymupdf>=1.24",          # extraction texte PDF robuste
+    # --- Embeddings ---
+    "sentence-transformers>=3.0",
+    # --- Recherche sémantique ---
+    "faiss-cpu>=1.8",
+    # --- LLM open-source ---
+    "transformers>=4.44",
+    "torch>=2.4",
+    "accelerate>=0.33",
+    # --- API ---
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.8",
+    # --- Utilitaires ---
+    "numpy>=1.26",
+    "tqdm>=4.66",
+    # --- Lakehouse (MinIO/S3 + Apache Iceberg, sans Spark) ---
+    "pyiceberg[s3fs,sql-sqlite]>=0.7",
+    "pyarrow>=16.0",
+    "boto3>=1.34",
+    "duckdb>=1.0",
+    "python-multipart>=0.0.9",   # upload de fichiers FastAPI
+]
+
+[project.optional-dependencies]
+notebook = ["jupyter>=1.0", "ipykernel>=6.29", "ipywidgets>=8.1"]
+# Fine-tuning QLoRA (lourd, à la demande) — tient sur 8 Go de VRAM.
+finetune = ["peft>=0.12", "datasets>=2.20", "bitsandbytes>=0.43", "trl>=0.9"]
+
+[project.scripts]
+rag-build = "rag_devops.cli:build_cmd"
+rag-ask = "rag_devops.cli:ask_cmd"
+rag-lakehouse = "rag_devops.cli:lakehouse_cmd"
+rag-ingest = "rag_devops.cli:ingest_cmd"
+rag-finetune = "rag_devops.cli:finetune_cmd"
+
+[build-system]
+requires = ["uv_build>=0.12.19,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv]
+# torch via l'index PyPI standard (wheels CUDA 12 incluses sous Linux x86_64)

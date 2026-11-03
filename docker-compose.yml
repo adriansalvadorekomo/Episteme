@@ -1,0 +1,26 @@
+# Lakehouse — stockage objet S3 pour les documents que l'assistant apprend.
+#
+# MinIO n'est plus distribué librement sur Docker Hub/quay ; on utilise donc
+# SeaweedFS, S3-compatible et librement téléchargeable. L'API S3 est exposée sur
+# le port 9000 de l'hôte (comme MinIO) : l'app s'y connecte via RAG_S3_ENDPOINT.
+# La couche tabulaire (Apache Iceberg) reste gérée côté Python (pyiceberg), sans Spark.
+#
+#   docker compose up -d           # démarre le stockage S3
+#   S3 API  :  http://localhost:9000
+#   filer UI:  http://localhost:8888
+#
+# Pour revenir à MinIO quand il est disponible, remplacer ce service par l'image
+# minio/minio (command: server /data) — le reste du code est inchangé.
+services:
+  s3:
+    image: chrislusf/seaweedfs:latest
+    container_name: lakehouse-s3
+    command: "server -s3 -s3.port=8333 -dir=/data -ip=0.0.0.0"
+    ports:
+      - "9000:8333"   # API S3 (hôte 9000 -> conteneur 8333)
+      - "8888:8888"   # filer (optionnel)
+    volumes:
+      - s3-data:/data
+
+volumes:
+  s3-data:
