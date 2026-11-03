@@ -17,6 +17,7 @@ class LLM:
         self._tok = None
         self._model = None
         self._lock = threading.Lock()  # un seul chargement, même si préchauffé en tâche de fond
+        self._gen_lock = threading.Lock()  # une génération à la fois sur le GPU
         self.last_stats: dict | None = None  # métriques de la dernière génération
 
     @property
@@ -73,6 +74,21 @@ class LLM:
         system_prompt: str,
         user_prompt: str,
         history: list[dict] | None = None,
+        max_new_tokens: int | None = None,
+        repetition_penalty: float | None = None,
+    ) -> str:
+        # Une génération à la fois : une réparation de diagramme et une réponse ne doivent
+        # jamais se disputer le GPU (8 Go) ni le cache KV.
+        with self._gen_lock:
+            return self._generate(system_prompt, user_prompt, history, max_new_tokens, repetition_penalty)
+
+    def _generate(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        history: list[dict] | None = None,
+        max_new_tokens: int | None = None,
+        repetition_penalty: float | None = None,
     ) -> str:
         import torch
 
@@ -104,7 +120,8 @@ class LLM:
         with torch.no_grad():
             out = self.model.generate(
                 **inputs,
-                max_new_tokens=self.cfg.max_new_tokens,
+                max_new_tokens=max_new_tokens or self.cfg.max_new_tokens,
+                repetition_penalty=repetition_penalty,  # None = défaut du modèle
                 do_sample=do_sample,
                 temperature=self.cfg.temperature if do_sample else None,
                 top_p=0.9 if do_sample else None,

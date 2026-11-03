@@ -12,6 +12,7 @@ import time
 from dataclasses import dataclass, field
 
 from .config import Settings, settings
+from .diagrams import diagram_kind, normalize_answer, visual_directive, wants_visual
 from .graph import KnowledgeGraph
 from .index import SearchHit, VectorStore
 from .llm import LLM
@@ -39,6 +40,16 @@ _STARTERS = {
     "pourquoi", "le", "les", "une", "des", "et", "ce", "c", "was", "wie",
     "warum", "welche", "welcher", "wann", "wer", "wo", "ist", "sind", "ein",
     "eine", "der", "die", "das", "und", "oder", "mit", "für", "von", "zu",
+    # verbes de requête / impératifs (souvent capitalisés en début de phrase) — EN/ES/FR/DE
+    "show", "draw", "sketch", "illustrate", "visualize", "visualise", "help", "compare",
+    "walk", "me", "us",
+    "explica", "explícame", "explicame", "explicar", "muestra", "muéstrame", "muestrame",
+    "dibuja", "dibújame", "dame", "hazme", "haz", "dime", "compara", "enséñame", "ensename",
+    "puedes", "podrías", "podrias", "cómo",
+    "explique", "expliquez", "explique-moi", "montre", "montrez", "dessine", "décris",
+    "décrivez", "donne", "donnez", "peux", "pourrais", "moi",
+    "erkläre", "erklär", "erklären", "zeig", "zeige", "zeigen", "zeichne", "beschreibe",
+    "gib", "vergleiche", "kannst", "könntest", "mir", "bitte",
 }
 _TOK_RE = re.compile(r"[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9]+")
 
@@ -51,13 +62,17 @@ def _proper_tokens(question: str) -> set[str]:
     d'ancrage robuste au multilingue.
     """
     out: set[str] = set()
+    # En allemand TOUS les noms prennent une majuscule (« Architektur ») : une simple
+    # majuscule initiale n'y signale pas une techno. On n'y retient que les formes sans
+    # ambiguïté : casse interne (MLOps, mTLS), chiffres (K8s), sigles (AWS, CI).
+    german = detect_lang(question) == "de"
     for t in _TOK_RE.findall(question):
         low = t.lower()
-        if low in _STARTERS or len(low) < 2:
-            continue
+        if low in _STARTERS or len(low) < 2 or wants_visual(t):
+            continue  # mot d'amorce, verbe de requête ou mot « visuel » (Diagramm, Schéma…)
         inner_upper = any(c.isupper() for c in t[1:])
         has_digit = any(c.isdigit() for c in t)
-        if inner_upper or has_digit or t[0].isupper():
+        if inner_upper or has_digit or (t[0].isupper() and not german):
             out.add(low)
     return out
 
@@ -223,6 +238,7 @@ class RAGAnswer:
     hits: list[SearchHit] = field(default_factory=list)
     method: str = "llm"             # "graph" | "vector" | "llm" | "scope" | "idk"
     metrics: dict = field(default_factory=dict)  # métriques d'inférence (tokens, tok/s, VRAM…)
+    visual: bool = False            # réponse avec diagramme Mermaid
 
     @property
     def sources(self) -> list[dict]:
@@ -371,20 +387,33 @@ class RAGPipeline:
         context = format_context(hits)
         return self._rag_sys, RAG_USER_TEMPLATE.format(context=context, question=question)
 
-    def ask_llm(self, question: str, history: list[dict] | None = None) -> RAGAnswer:
+    def _visual(self, question: str, visual: bool) -> tuple[bool, int | None]:
+        """(diagramme ?, budget de tokens). Visuel si demandé par le toggle OU par la
+        formulation (« explique visuellement… », « diagrama », « schéma »…) — par défaut."""
+        if not (visual or wants_visual(question)):
+            return False, None
+        return True, self.cfg.max_new_tokens + 256  # un diagramme coûte ~150-250 tokens
+
+    def ask_llm(
+        self, question: str, history: list[dict] | None = None, visual: bool = False
+    ) -> RAGAnswer:
         """MODE LLM : intuition pure (professeur), consciente du fil de discussion."""
         if not self.in_scope(self._augment(history, question)):
             return self._decline(question, "llm")
         lang = detect_lang(question)
-        user = f"{_LANG_DIRECTIVE[lang]}\n\n{question}\n\n{_LANG_FINAL[lang]}"
-        answer = self.llm.generate(self._llm_sys, user, history=self._prep_history(history))
+        vis, budget = self._visual(question, visual)
+        extra = f"\n\n{visual_directive(diagram_kind(question), grounded=False)}" if vis else ""
+        user = f"{_LANG_DIRECTIVE[lang]}\n\n{question}{extra}\n\n{_LANG_FINAL[lang]}"
+        answer = self.llm.generate(self._llm_sys, user, history=self._prep_history(history),
+                                   max_new_tokens=budget, repetition_penalty=1.12 if vis else None)
         return RAGAnswer(
-            question=question, answer=answer, mode="llm", grounded=False, hits=[], method="llm",
-            metrics=dict(self.llm.last_stats or {}),
+            question=question, answer=normalize_answer(answer), mode="llm", grounded=False,
+            hits=[], method="llm", metrics=dict(self.llm.last_stats or {}), visual=vis,
         )
 
     def ask_rag(
-        self, question: str, top_k: int | None = None, history: list[dict] | None = None
+        self, question: str, top_k: int | None = None, history: list[dict] | None = None,
+        visual: bool = False,
     ) -> RAGAnswer:
         """MODE RAG : réponse ancrée + citations, consciente du fil de discussion."""
         search_query = self._augment(history, question)
@@ -411,10 +440,15 @@ class RAGPipeline:
                 method="idk",
             )
         system_prompt, user_prompt = self.build_prompt(question, hits)
+        vis, budget = self._visual(question, visual)
+        if vis:
+            user_prompt += f"\n\n{visual_directive(diagram_kind(question), grounded=True)}"
         user_prompt = f"{user_prompt}\n\n{_LANG_FINAL[detect_lang(question)]}"
-        answer = self.llm.generate(system_prompt, user_prompt, history=self._prep_history(history))
+        answer = self.llm.generate(system_prompt, user_prompt, history=self._prep_history(history),
+                                   max_new_tokens=budget, repetition_penalty=1.12 if vis else None)
         return RAGAnswer(
-            question=question, answer=answer, mode="rag", grounded=True, hits=hits, method=method,
+            question=question, answer=normalize_answer(answer), mode="rag", grounded=True,
+            hits=hits, method=method, visual=vis,
             metrics={**(self.llm.last_stats or {}), "retrieval_ms": retrieval_ms, "chunks": len(hits)},
         )
 
@@ -424,12 +458,13 @@ class RAGPipeline:
         mode: str = "rag",
         top_k: int | None = None,
         history: list[dict] | None = None,
+        visual: bool = False,
     ) -> RAGAnswer:
         t0 = time.perf_counter()
         if mode == "llm":
-            res = self.ask_llm(question, history=history)
+            res = self.ask_llm(question, history=history, visual=visual)
         else:
-            res = self.ask_rag(question, top_k=top_k, history=history)
+            res = self.ask_rag(question, top_k=top_k, history=history, visual=visual)
         res.metrics["total_ms"] = round((time.perf_counter() - t0) * 1000)
         return res
 

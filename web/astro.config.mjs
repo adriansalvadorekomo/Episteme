@@ -5,6 +5,10 @@ import { defineConfig } from 'astro/config';
 export default defineConfig({
   server: { port: 4321 },
   vite: {
+    // Mermaid est importé à la demande (premier diagramme). Sans pré-bundling, Vite le
+    // découvre en pleine session, le ré-optimise et invalide l'ancien hash (504 "Outdated
+    // Optimize Dep") : on le pré-bundle au démarrage du serveur de dev.
+    optimizeDeps: { include: ['mermaid', 'gsap', 'gsap/Flip', 'gsap/MotionPathPlugin', 'marked', 'dompurify'] },
     server: {
       proxy: {
         '/api': {

@@ -95,6 +95,13 @@ class AskRequest(BaseModel):
     top_k: int | None = Field(default=None, ge=1, le=15)
     # Mémoire conversationnelle : tours précédents (du plus ancien au plus récent).
     history: list[Turn] = Field(default_factory=list)
+    # Force un diagramme (toggle « Visual »). Sinon détecté depuis la formulation.
+    visual: bool = False
+
+
+class RepairRequest(BaseModel):
+    code: str = Field(..., min_length=3, max_length=6000)
+    error: str = Field(default="", max_length=2000)
 
 
 class SearchRequest(BaseModel):
@@ -154,7 +161,7 @@ def search(req: SearchRequest):
 def ask(req: AskRequest):
     pipeline: RAGPipeline = state["pipeline"]
     history = [{"role": t.role, "content": t.content} for t in req.history]
-    result = pipeline.ask(req.question, mode=req.mode, top_k=req.top_k, history=history)
+    result = pipeline.ask(req.question, mode=req.mode, top_k=req.top_k, history=history, visual=req.visual)
     return {
         "question": result.question,
         "answer": result.answer,
@@ -163,7 +170,20 @@ def ask(req: AskRequest):
         "method": result.method,  # "graph" | "vector" | "llm"
         "sources": result.sources,  # numérotées [n] : n, source, category, score, text
         "metrics": result.metrics,  # tokens, tok/s, gen_ms, retrieval_ms, peak VRAM…
+        "visual": result.visual,    # la réponse contient un diagramme Mermaid
     }
+
+
+@app.post("/diagram/repair")
+def diagram_repair(req: RepairRequest):
+    """Le navigateur n'a pas pu analyser un diagramme : le LLM le corrige (un essai)."""
+    from rag_devops.diagrams import repair_mermaid
+
+    pipeline: RAGPipeline = state["pipeline"]
+    fixed = repair_mermaid(req.code, req.error, pipeline.llm)
+    if not fixed:
+        raise HTTPException(status_code=422, detail="Diagram could not be repaired.")
+    return {"code": fixed}
 
 
 @app.get("/gpu")

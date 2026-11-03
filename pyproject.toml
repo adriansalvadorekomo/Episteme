@@ -48,4 +48,9 @@ requires = ["uv_build>=0.12.19,<0.13.0"]
 build-backend = "uv_build"
 
 [tool.uv]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]
 # torch via l'index PyPI standard (wheels CUDA 12 incluses sous Linux x86_64)

@@ -5,9 +5,11 @@
 // forward, the exit renders its end state and plays it backwards. Same curve, same
 // path, same duration — symmetric by construction.
 import { gsap } from 'gsap';
+import { Flip } from 'gsap/Flip';
 import { MotionPathPlugin } from 'gsap/MotionPathPlugin';
 
-gsap.registerPlugin(MotionPathPlugin);
+gsap.registerPlugin(MotionPathPlugin, Flip);
+export { Flip };
 
 export const RM = typeof window !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 export const EASE = 'power3.out';
