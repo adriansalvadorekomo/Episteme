@@ -10,10 +10,10 @@ export default defineConfig({
     // Optimize Dep") : on le pré-bundle au démarrage du serveur de dev.
     optimizeDeps: { include: ['mermaid', 'gsap', 'gsap/Flip', 'gsap/MotionPathPlugin', 'marked', 'dompurify'] },
     server: {
-      // Allow Cloudflare Quick Tunnel domains (*.trycloudflare.com) and any
-      // other external host — safe for local dev/demo, not for production.
-      allowedHosts: 'all',
-      host: '0.0.0.0',
+      // Allow any external host (Cloudflare tunnel, etc.) — Vite 6 requires
+      // boolean true, not the string 'all'. Safe for local dev/demo only.
+      allowedHosts: true,
+      host: true,
       proxy: {
         '/api': {
           target: 'http://localhost:8000',
