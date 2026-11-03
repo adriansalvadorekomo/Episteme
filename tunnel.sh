@@ -7,21 +7,20 @@
 #   Web  http://localhost:4321  →  *.trycloudflare.com
 #
 # No Cloudflare account needed (Quick Tunnels).
-# URLs are printed once they appear in cloudflared output.
 # ─────────────────────────────────────────────────────────────
 
 set -euo pipefail
 
 CLOUDFLARED="${HOME}/.local/bin/cloudflared"
 
-if ! command -v "$CLOUDFLARED" &>/dev/null; then
+if [[ ! -x "$CLOUDFLARED" ]]; then
   echo "❌  cloudflared not found at $CLOUDFLARED"
   echo "    Install: curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o ~/.local/bin/cloudflared && chmod +x ~/.local/bin/cloudflared"
   exit 1
 fi
 
-API_LOG=$(mktemp)
-WEB_LOG=$(mktemp)
+API_LOG=$(mktemp /tmp/cf-api-XXXX.log)
+WEB_LOG=$(mktemp /tmp/cf-web-XXXX.log)
 
 cleanup() {
   echo ""
@@ -34,45 +33,53 @@ trap cleanup EXIT INT TERM
 echo "🚀  Starting Quick Tunnels…"
 echo ""
 
-# Launch both tunnels in background, redirect stderr (where the URL appears) to log files
-"$CLOUDFLARED" tunnel --url http://localhost:8000 --no-autoupdate 2>"$API_LOG" &
+# Capture both stdout AND stderr (cloudflared changed where it prints the URL across versions)
+"$CLOUDFLARED" tunnel --url http://localhost:8000 --no-autoupdate > "$API_LOG" 2>&1 &
 API_PID=$!
 
-"$CLOUDFLARED" tunnel --url http://localhost:4321 --no-autoupdate 2>"$WEB_LOG" &
+"$CLOUDFLARED" tunnel --url http://localhost:4321 --no-autoupdate > "$WEB_LOG" 2>&1 &
 WEB_PID=$!
 
-# Wait until each tunnel prints its public URL (timeout 30s each)
+# Poll log file until a trycloudflare.com URL appears (timeout 40s)
 wait_for_url() {
   local log="$1"
-  local label="$2"
-  local deadline=$(( $(date +%s) + 30 ))
+  local deadline=$(( $(date +%s) + 40 ))
   while [[ $(date +%s) -lt $deadline ]]; do
+    # Try multiple patterns — cloudflared prints it in different lines/formats
     local url
-    url=$(grep -oP 'https://[a-zA-Z0-9\-]+\.trycloudflare\.com' "$log" 2>/dev/null | head -1)
+    url=$(grep -oE 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' "$log" 2>/dev/null | head -1)
     if [[ -n "$url" ]]; then
-      echo "$url"
+      printf '%s' "$url"
       return 0
     fi
     sleep 0.5
   done
-  echo "(timeout — check $log)"
+  # Fallback: dump the log so the user can see what happened
+  echo "(timeout — cloudflared output:)"
+  cat "$log" >&2
+  printf '%s' "TUNNEL_FAILED"
 }
 
-echo "⏳  Waiting for tunnel URLs…"
-API_URL=$(wait_for_url "$API_LOG" "API")
-WEB_URL=$(wait_for_url "$WEB_LOG" "Web")
+echo "⏳  Waiting for tunnel URLs (up to 40s)…"
+API_URL=$(wait_for_url "$API_LOG")
+WEB_URL=$(wait_for_url "$WEB_LOG")
 
 echo ""
-echo "╔══════════════════════════════════════════════════════════╗"
-echo "║              🌐  Cloudflare Quick Tunnels                ║"
-echo "╠══════════════════════════════════════════════════════════╣"
-printf  "║  🔌  API (FastAPI docs)  %-34s║\n" "${API_URL}/docs"
-printf  "║  💻  Web interface       %-34s║\n" "${WEB_URL}"
-echo "╚══════════════════════════════════════════════════════════╝"
+echo "=================================================="
+echo "  Cloudflare Quick Tunnels — share these URLs"
+echo "=================================================="
 echo ""
-echo "📋  Share these URLs with your teammate."
-echo "    Press Ctrl+C to stop both tunnels."
+echo "  API  (FastAPI + /docs):"
+echo "  --> ${API_URL}/docs"
+echo ""
+echo "  Web  (Astro interface):"
+echo "  --> ${WEB_URL}"
+echo ""
+echo "=================================================="
+echo "  Copy each URL on a SINGLE line (no line breaks)."
+echo "  Press Ctrl+C to stop both tunnels."
+echo "=================================================="
 echo ""
 
-# Keep the script alive until Ctrl+C
+# Keep alive until Ctrl+C
 wait "$API_PID" "$WEB_PID"

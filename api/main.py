@@ -17,6 +17,7 @@ from contextlib import asynccontextmanager
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
 from rag_devops import lake
@@ -114,6 +115,12 @@ class SummarizeRequest(BaseModel):
 
 
 # --- Endpoints ---------------------------------------------------------
+@app.get("/", include_in_schema=False)
+def root():
+    """Redirect bare root to the interactive API docs."""
+    return RedirectResponse(url="/docs")
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "index_loaded": "store" in state}
