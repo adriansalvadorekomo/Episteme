@@ -31,6 +31,9 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 echo "🚀  Starting Quick Tunnels…"
+echo "    (Make sure services are running:)"
+echo "    API : uv run uvicorn api.main:app --host 0.0.0.0 --port 8000"
+echo "    Web : cd web && pnpm dev -- --host"
 echo ""
 
 # Capture both stdout AND stderr (cloudflared changed where it prints the URL across versions)
