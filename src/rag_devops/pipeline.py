@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import re
+import time
 from dataclasses import dataclass, field
 
 from .config import Settings, settings
@@ -138,7 +139,7 @@ def detect_lang(text: str) -> str:
 
 # Refus de périmètre (hors ingénierie logicielle), dans les 4 langues.
 _SCOPE_DECLINE = (
-    "I'm the **Software Engineer assistant** and I only cover software engineering "
+    "I'm **Episteme**, a software-engineering knowledge platform, and I only cover software engineering "
     "(DevOps, MLOps, DataOps, Data & AI Engineering…). Please rephrase your "
     "question around one of these topics.\n\n"
     "Je n'enseigne que l'ingénierie logicielle (DevOps, MLOps, DataOps, Data & "
@@ -157,8 +158,9 @@ _SCOPE_DECLINE = (
 # --------------------------------------------------------------------------
 def rag_system_prompt(cfg: Settings) -> str:
     return (
-        "Tu es l'assistant Software Engineer, enseignant de niveau doctorat en "
-        f"ingénierie logicielle, spécialisé en : {cfg.domains_str()}.\n\n"
+        "Tu es Episteme, une plateforme de connaissances pour l'ingénierie logicielle, "
+        "qui enseigne au niveau doctorat. Devise : comprendre, relier, concevoir. "
+        f"Domaines : {cfg.domains_str()}.\n\n"
         "RÈGLES IMPÉRATIVES (mode ANCRÉ) :\n"
         "1. Réponds UNIQUEMENT à partir du CONTEXTE fourni (extraits numérotés). "
         "N'ajoute jamais un fait, un chiffre, une commande ou un nom absent du contexte.\n"
@@ -179,8 +181,9 @@ def rag_system_prompt(cfg: Settings) -> str:
 
 def llm_system_prompt(cfg: Settings) -> str:
     return (
-        "Tu es l'assistant Software Engineer, enseignant de niveau doctorat en "
-        f"ingénierie logicielle, spécialisé en : {cfg.domains_str()}.\n\n"
+        "Tu es Episteme, une plateforme de connaissances pour l'ingénierie logicielle, "
+        "qui enseigne au niveau doctorat. Devise : comprendre, relier, concevoir. "
+        f"Domaines : {cfg.domains_str()}.\n\n"
         "STYLE (à la Feynman) : explique à partir des premiers principes, avec une "
         "analogie simple et AU MOINS un exemple concret (commande, extrait de code ou "
         "scénario réel). La clarté prime sur le jargon ; définis les termes que tu "
@@ -218,7 +221,8 @@ class RAGAnswer:
     mode: str                       # "rag" | "llm"
     grounded: bool
     hits: list[SearchHit] = field(default_factory=list)
-    method: str = "llm"             # "graph" | "vector" | "llm"
+    method: str = "llm"             # "graph" | "vector" | "llm" | "scope" | "idk"
+    metrics: dict = field(default_factory=dict)  # métriques d'inférence (tokens, tok/s, VRAM…)
 
     @property
     def sources(self) -> list[dict]:
@@ -375,7 +379,8 @@ class RAGPipeline:
         user = f"{_LANG_DIRECTIVE[lang]}\n\n{question}\n\n{_LANG_FINAL[lang]}"
         answer = self.llm.generate(self._llm_sys, user, history=self._prep_history(history))
         return RAGAnswer(
-            question=question, answer=answer, mode="llm", grounded=False, hits=[], method="llm"
+            question=question, answer=answer, mode="llm", grounded=False, hits=[], method="llm",
+            metrics=dict(self.llm.last_stats or {}),
         )
 
     def ask_rag(
@@ -391,7 +396,9 @@ class RAGPipeline:
                 question=question, answer=_IDK[detect_lang(question)], mode="rag",
                 grounded=False, hits=[], method="idk",
             )
+        t_ret = time.perf_counter()
         hits, method = self.retrieve(search_query, top_k=top_k)
+        retrieval_ms = round((time.perf_counter() - t_ret) * 1000)
         # Ancrage insuffisant → réponse honnête « je ne sais pas » (pas d'invention).
         best = max((h.score for h in hits), default=0.0)
         if not hits or best < self.cfg.rag_min_score:
@@ -407,7 +414,8 @@ class RAGPipeline:
         user_prompt = f"{user_prompt}\n\n{_LANG_FINAL[detect_lang(question)]}"
         answer = self.llm.generate(system_prompt, user_prompt, history=self._prep_history(history))
         return RAGAnswer(
-            question=question, answer=answer, mode="rag", grounded=True, hits=hits, method=method
+            question=question, answer=answer, mode="rag", grounded=True, hits=hits, method=method,
+            metrics={**(self.llm.last_stats or {}), "retrieval_ms": retrieval_ms, "chunks": len(hits)},
         )
 
     def ask(
@@ -417,9 +425,13 @@ class RAGPipeline:
         top_k: int | None = None,
         history: list[dict] | None = None,
     ) -> RAGAnswer:
+        t0 = time.perf_counter()
         if mode == "llm":
-            return self.ask_llm(question, history=history)
-        return self.ask_rag(question, top_k=top_k, history=history)
+            res = self.ask_llm(question, history=history)
+        else:
+            res = self.ask_rag(question, top_k=top_k, history=history)
+        res.metrics["total_ms"] = round((time.perf_counter() - t0) * 1000)
+        return res
 
 
 # Alias de compatibilité (ancien nom du prompt système RAG).

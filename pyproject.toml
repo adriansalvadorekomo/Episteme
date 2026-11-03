@@ -28,6 +28,7 @@ dependencies = [
     "boto3>=1.34",
     "duckdb>=1.0",
     "python-multipart>=0.0.9",   # upload de fichiers FastAPI
+    "nvidia-ml-py>=13.615.71",
 ]
 
 [project.optional-dependencies]

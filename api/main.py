@@ -47,7 +47,23 @@ async def lifespan(app: FastAPI):
     graph = KnowledgeGraph.load(settings) if settings.use_graph else None
     state["store"] = store
     state["graph"] = graph
-    state["pipeline"] = RAGPipeline(store, llm, settings, graph=graph)
+    state["pipeline"] = pipeline = RAGPipeline(store, llm, settings, graph=graph)
+
+    # Préchauffage en tâche de fond : l'API répond tout de suite, et la première
+    # question n'attend ni le chargement des modèles ni le calcul des caches.
+    def _warm() -> None:
+        try:
+            store.embedder.model           # modèle d'embeddings
+            pipeline._ensure_scope_vecs()  # ancres du garde-fou de périmètre
+            pipeline.corpus_df             # fréquences documentaires (garde-fou IDK)
+            store.vectors                  # matrice d'embeddings (graphe / re-ranking)
+            llm.load()                     # LLM (verrou : jamais chargé deux fois)
+        except Exception as exc:  # noqa: BLE001
+            print(f"(préchauffage incomplet : {exc})")
+
+    import threading
+
+    threading.Thread(target=_warm, name="warmup", daemon=True).start()
     yield
     state.clear()
 
@@ -146,7 +162,17 @@ def ask(req: AskRequest):
         "grounded": result.grounded,
         "method": result.method,  # "graph" | "vector" | "llm"
         "sources": result.sources,  # numérotées [n] : n, source, category, score, text
+        "metrics": result.metrics,  # tokens, tok/s, gen_ms, retrieval_ms, peak VRAM…
     }
+
+
+@app.get("/gpu")
+def gpu():
+    """Télémétrie GPU en direct (utilisation, VRAM, température, puissance)."""
+    from rag_devops.gpu import gpu_stats
+
+    pipeline: RAGPipeline | None = state.get("pipeline")
+    return {**gpu_stats(), "model_loaded": bool(pipeline and pipeline.llm.loaded)}
 
 
 @app.post("/summarize")

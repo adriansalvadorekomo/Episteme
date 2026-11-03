@@ -2,6 +2,8 @@
 // Produit de chat (façon claude.ai) : barre latérale de conversations, fil de
 // discussion, sélecteur de mode LLM/RAG, et réglages de profil. Pas de landing —
 // une application. L'index FAISS + le LLM sont servis par l'API FastAPI (voir /api).
+// Motion : GSAP (src/lib/motion.ts) — entrées/sorties symétriques, logo animé.
+import Logo from '../components/Logo.astro';
 ---
 
 <!doctype html>
@@ -9,10 +11,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Software Engineer Assistant</title>
+    <title>Episteme — Engineering Knowledge Intelligence</title>
     <meta
       name="description"
-      content="A software engineering chat assistant with two modes — LLM (intuition) and RAG (grounded, cited evidence)."
+      content="Episteme — an AI-powered knowledge platform for software engineering. Understand. Connect. Engineer."
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -26,7 +28,10 @@
       <!-- ░░░░░░░░░░ SIDEBAR ░░░░░░░░░░ -->
       <aside class="side" id="side" aria-label="Conversations">
         <div class="side-top">
-          <span class="brand"><span class="brand-id">Software <span class="slash">Engineer</span></span><span class="label brand-sub">ASSISTANT</span></span>
+          <span class="brand" id="brand">
+            <Logo size={30} class="logo-side" />
+            <span class="brand-text"><span class="brand-id">Epistem<span class="slash">e</span></span><span class="label brand-sub">KNOWLEDGE INTELLIGENCE</span></span>
+          </span>
           <button class="icon-btn side-collapse" id="sideClose" type="button" aria-label="Close menu" title="Close menu">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m15 6-6 6 6 6"/></svg>
           </button>
@@ -74,13 +79,19 @@
           <div class="thread-inner" id="threadInner">
             <!-- empty-state greeting (shown when a conversation has no messages) -->
             <div class="greeting" id="greeting">
-              <p class="label greet-fig">FIG.01 / TWO WAYS TO KNOW</p>
+              <Logo size={60} class="logo-hero" label="Episteme" />
+              <p class="label greet-fig">EPISTEME · UNDERSTAND · CONNECT · ENGINEER</p>
               <h1 class="greet-h" id="greetH">Good evening.</h1>
               <p class="greet-sub">
-                Ask about Docker, Kubernetes, CI/CD, MLflow… In <span class="k">LLM</span>
-                mode the model answers from intuition; in <span class="k">RAG</span> mode
-                it answers from the course corpus, with citations <span class="cite-ex">[n]</span>.
+                Your knowledge platform for software engineering. <span class="k">Reasoning</span>
+                explains from first principles; <span class="k">Knowledge</span> grounds every answer
+                in your sources — connected as a graph — with citations <span class="cite-ex">[n]</span>.
               </p>
+              <div class="pillars" aria-hidden="true">
+                <span class="pillar"><b>KNOWLEDGE</b><span>RAG</span></span>
+                <span class="pillar"><b>RELATIONS</b><span>Graph-RAG</span></span>
+                <span class="pillar"><b>REASONING</b><span>LLMs</span></span>
+              </div>
             </div>
             <!-- messages render here -->
           </div>
@@ -89,8 +100,9 @@
         <!-- composer docks: moved into the greeting block when empty, here otherwise -->
         <div class="composer-dock" id="bottomDock">
           <form class="composer" id="composerForm">
+            <div class="attachments" id="attachments" aria-live="polite"></div>
             <textarea id="askInput" rows="1" autocomplete="off" spellcheck="false"
-              placeholder="Ask the Software Engineer assistant…" aria-label="Message"></textarea>
+              placeholder="Ask Episteme about software engineering…" aria-label="Message"></textarea>
             <div class="composer-bar">
               <div class="composer-left">
                 <button type="button" id="attachBtn" class="attach" aria-label="Add a document to the assistant's knowledge" title="Add a document the assistant can read">
@@ -179,7 +191,7 @@
       <div class="modal-scrim" data-close-help></div>
       <div class="modal-card help-card" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
         <div class="modal-head">
-          <h2 class="modal-title" id="helpTitle">How to use this assistant</h2>
+          <h2 class="modal-title" id="helpTitle">Welcome to Episteme</h2>
           <button class="icon-btn" id="helpClose" type="button" aria-label="Close help">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
           </button>
@@ -187,22 +199,22 @@
 
         <div class="modal-body">
           <p class="help-lede">
-            This is a software engineering tutor (DevOps, MLOps, DataOps, Data &amp; AI
-            Engineering) grounded in a course corpus. It has <b>two modes</b>,
-            and comparing them is the whole lesson — ask the same question in each and watch
-            the answer change.
+            Episteme is your knowledge platform for software engineering —
+            <b>Understand. Connect. Engineer.</b> It <b>reasons</b> with an LLM and
+            <b>grounds</b> answers in a knowledge base connected as a graph, with citations.
+            Two modes let you choose — compare them to see the difference.
           </p>
 
           <ol class="steps">
             <li class="step">
               <span class="step-n">01</span>
               <div class="step-body">
-                <h3 class="step-h">Pick a mode</h3>
-                <p>Use the switch in the top bar or in the composer.
-                  <span class="tag tag-llm">LLM</span> answers from the model’s own intuition —
-                  fast, fluent, <em>no sources</em>.
-                  <span class="tag tag-rag">RAG</span> retrieves passages from the corpus and
-                  answers from them, with citations. Each chat remembers its own mode.</p>
+                <h3 class="step-h">Reasoning or Knowledge</h3>
+                <p>Flip the switch in the composer.
+                  <span class="tag tag-llm">LLM</span> is <b>Reasoning</b> — it explains from first
+                  principles, fast and fluent, <em>without sources</em>.
+                  <span class="tag tag-rag">RAG</span> is <b>Knowledge</b> — it retrieves from your
+                  knowledge base (connected as a graph) and answers with citations. Each chat keeps its own mode.</p>
               </div>
             </li>
             <li class="step">
@@ -355,10 +367,19 @@
         padding: var(--s2);
       }
       .side-top { display: flex; align-items: center; justify-content: space-between; gap: var(--s1); margin-block-end: var(--s3); }
-      .brand { display: flex; flex-direction: column; gap: 1px; line-height: 1.2; }
+      .brand { display: flex; align-items: center; gap: 0.65rem; cursor: default; }
+      .brand-text { display: flex; flex-direction: column; gap: 1px; line-height: 1.2; }
+
+      /* ── Episteme logo (animated by GSAP; hidden until the intro sets it up) ── */
+      .logo { visibility: hidden; color: var(--fg); overflow: visible; flex-shrink: 0; }
+      .lg-spine, .lg-arm { stroke: currentColor; stroke-width: 3; stroke-linecap: round; }
+      .lg-link { stroke: var(--accent); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; opacity: 0.6; transition: stroke 0.5s var(--ease); }
+      .lg-node { fill: var(--accent); transition: fill 0.5s var(--ease); }
+      .lg-signal { fill: #fff; }
+      .logo-hero { display: block; margin-block-end: var(--s3); }
       .brand-id { font-family: var(--mono); font-weight: 700; font-size: var(--fs-0); letter-spacing: 0.08em; }
       .brand-id .slash { color: var(--accent); transition: color 0.5s var(--ease); }
-      .brand-sub { letter-spacing: 0.2em; }
+      .brand-sub { letter-spacing: 0.12em; }
       .side-collapse { display: none; }
 
       .new-chat {
@@ -436,8 +457,12 @@
       .app.empty .thread-inner { justify-content: center; }
       .greet-fig { display: block; margin-block-end: var(--s2); }
       .greet-h { font-family: var(--display); font-weight: 600; letter-spacing: -0.03em; line-height: 1; font-size: var(--fs-2); margin: 0 0 var(--s2); text-wrap: balance; }
-      .greet-sub { color: var(--muted); max-inline-size: 48ch; margin: 0 0 var(--s3); text-wrap: pretty; line-height: 1.6; }
-      .suggests { display: flex; flex-wrap: wrap; gap: var(--s1); }
+      .greet-sub { color: var(--muted); max-inline-size: 52ch; margin: 0 0 var(--s3); text-wrap: pretty; line-height: 1.6; }
+      .pillars { display: flex; flex-wrap: wrap; gap: var(--s1); margin-block-end: var(--s4); }
+      .pillar { display: flex; flex-direction: column; gap: 1px; padding: 0.5rem 0.85rem; background: var(--surface); border: 1px solid var(--line-soft); border-radius: var(--radius); }
+      .pillar b { font-family: var(--mono); font-size: var(--fs--1); font-weight: 700; letter-spacing: 0.14em; color: var(--fg); }
+      .pillar span { font-family: var(--mono); font-size: var(--fs--1); letter-spacing: 0.08em; color: var(--accent); transition: color 0.5s var(--ease); }
+      .suggests { display: flex; flex-wrap: wrap; gap: var(--s1); margin-block-start: var(--s3); }
       .suggest { font-family: var(--mono); font-size: var(--fs--1); letter-spacing: 0.04em; color: var(--muted); background: var(--surface); border: 1px solid var(--line-soft); border-radius: 999px; padding: 0.4rem 0.85rem; cursor: pointer; transition: color 0.2s, border-color 0.2s; }
       .suggest:hover { color: var(--fg); border-color: var(--accent); }
 
@@ -495,50 +520,68 @@
       .src-score { margin-inline-start: auto; font-size: var(--fs--1); color: var(--faint); font-variant-numeric: tabular-nums; }
       .src-snip { font-size: var(--fs--1); line-height: 1.5; color: var(--faint); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 
-      /* ── GENERATING — spectre « Voight-Kampff » + décodage de texte ── */
-      .gen { display: inline-flex; align-items: center; gap: 0.75rem; font-family: var(--mono); }
-      .gen-eq { display: inline-flex; align-items: center; gap: 3px; block-size: 20px; }
-      .gen-eq i {
-        inline-size: 3px; block-size: 100%; border-radius: 2px; transform-origin: center;
-        background: linear-gradient(var(--accent), color-mix(in oklab, var(--accent) 35%, transparent));
-        scale: 1 0.22; animation: eq 1.1s var(--ease) infinite;
+      /* ── Thinking status line (Claude Code style): ✻ glyph + rotating verb + timer ── */
+      .cc { display: grid; gap: 0.75rem; font-family: var(--mono); }
+      .cc-line { display: flex; align-items: baseline; gap: 0.7ch; font-size: var(--fs-0); }
+      .cc-glyph { display: inline-block; inline-size: 1.2ch; text-align: center; color: var(--accent); transition: color 0.5s var(--ease); }
+      .cc-verb {
+        display: inline-block; font-weight: 500; color: var(--accent);
+        background: linear-gradient(90deg, var(--accent) 0 38%, color-mix(in oklab, var(--accent), white 70%) 50%, var(--accent) 62% 100%);
+        background-size: 260% 100%; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+        animation: ccshimmer 2.1s linear infinite;
       }
-      .gen-eq i:nth-child(1) { animation-delay: -0.9s; }
-      .gen-eq i:nth-child(2) { animation-delay: -0.5s; }
-      .gen-eq i:nth-child(3) { animation-delay: -0.1s; }
-      .gen-eq i:nth-child(4) { animation-delay: -0.7s; }
-      .gen-eq i:nth-child(5) { animation-delay: -0.25s; }
-      .gen-eq i:nth-child(6) { animation-delay: -0.6s; }
-      .gen-eq i:nth-child(7) { animation-delay: -0.35s; }
-      @keyframes eq {
-        0%, 100% { scale: 1 0.18; opacity: 0.55; }
-        50%      { scale: 1 1;    opacity: 1; }
-      }
-      /* texte : scanline qui balaie + léger scintillement, façon décodage */
-      .gen-label {
-        position: relative; font-size: var(--fs--1); font-weight: 500;
-        letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted);
-        animation: genflick 2.6s steps(1) infinite;
-      }
-      .gen-label::after {
-        content: ""; position: absolute; inset-block: -2px; inline-size: 1.5ch;
-        background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--accent) 70%, transparent), transparent);
-        mix-blend-mode: screen; animation: genscan 1.8s var(--ease) infinite;
-      }
-      @keyframes genscan { 0% { inset-inline-start: -1.5ch; } 100% { inset-inline-start: 100%; } }
-      @keyframes genflick { 0%, 92%, 100% { opacity: 1; } 94% { opacity: 0.45; } 96% { opacity: 0.9; } }
-      .gen-caret {
-        inline-size: 7px; block-size: 1.05em; background: var(--accent); border-radius: 1px;
-        animation: genblink 1s steps(1) infinite;
-      }
+      @keyframes ccshimmer { from { background-position: 100% 0; } to { background-position: -160% 0; } }
+      .cc-time { color: var(--faint); font-size: var(--fs--1); font-variant-numeric: tabular-nums; }
       @keyframes genblink { 50% { opacity: 0; } }
+
+      /* live GPU instrument cluster */
+      .gpu-live { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.45rem; max-inline-size: 34rem; }
+      .g { display: grid; gap: 0.28rem; padding: 0.5rem 0.65rem; background: var(--surface); border: 1px solid var(--line-soft); border-radius: 6px; }
+      .g-top { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5ch; }
+      .gl { font-size: 0.6rem; letter-spacing: 0.18em; color: var(--faint); text-transform: uppercase; }
+      .gv { font-size: var(--fs--1); color: var(--fg); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+      .gv small { color: var(--faint); font-weight: 500; }
+      .gbar { display: block; block-size: 3px; background: var(--line); border-radius: 2px; overflow: hidden; }
+      .gbar i { display: block; block-size: 100%; inline-size: 0; background: var(--accent); border-radius: 2px; transition: background 0.5s var(--ease); }
+      .gpu-name { font-size: 0.62rem; letter-spacing: 0.12em; color: var(--faint); text-transform: uppercase; }
+      @media (max-width: 40rem) { .gpu-live { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+      /* inference receipt under each answer */
+      .receipt { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; margin-block-start: var(--s2); padding-block-start: 0.6rem; border-block-start: 1px dashed var(--line-soft); }
+      .rc { font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.04em; color: var(--muted); padding: 0.2rem 0.55rem; border: 1px solid var(--line-soft); border-radius: 999px; background: var(--surface); white-space: nowrap; }
+      .rc b { color: var(--fg); font-weight: 600; font-variant-numeric: tabular-nums; }
+      .rc.hot { border-color: color-mix(in oklab, var(--accent) 40%, var(--line-soft)); }
+      .rc.hot b { color: var(--accent); }
+      .rc.dev { color: var(--faint); border-style: dashed; }
+      .receipt .bolt { color: var(--accent); font-size: 0.75rem; }
       .err { color: var(--accent-llm); }
+
+      /* ── composer attachments (claude-style chips; symmetric in/out via GSAP) ── */
+      .attachments { display: flex; flex-wrap: wrap; padding-inline: 0.2rem; margin-block-end: 0.45rem; overflow: hidden; }
+      .attachments:empty { display: none; }
+      .chip-att {
+        display: inline-flex; align-items: center; gap: 0.5rem; margin-right: 0.4rem; margin-block: 0.15rem;
+        padding: 0.32rem 0.7rem 0.32rem 0.38rem; background: var(--surface-2); border: 1px solid var(--line);
+        border-radius: 10px; font-size: var(--fs--1); white-space: nowrap; overflow: hidden; max-inline-size: 24rem;
+        transition: border-color 0.3s var(--ease), background 0.3s var(--ease);
+      }
+      .ca-ico { display: grid; place-items: center; inline-size: 24px; block-size: 24px; flex-shrink: 0; border-radius: 7px; color: var(--accent); background: color-mix(in oklab, var(--accent) 14%, transparent); transition: color 0.3s, background 0.3s; }
+      .ca-name { color: var(--fg); overflow: hidden; text-overflow: ellipsis; max-inline-size: 12rem; }
+      .ca-st { font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+      .chip-att.ok { border-color: color-mix(in oklab, var(--accent-rag) 45%, var(--line)); }
+      .chip-att.ok .ca-ico { color: var(--accent-rag); background: color-mix(in oklab, var(--accent-rag) 16%, transparent); }
+      .chip-att.ok .ca-st { color: var(--accent-rag); }
+      .chip-att.dup .ca-st { color: var(--muted); }
+      .chip-att.err { border-color: color-mix(in oklab, var(--accent-llm) 45%, var(--line)); }
+      .chip-att.err .ca-ico { color: var(--accent-llm); background: color-mix(in oklab, var(--accent-llm) 14%, transparent); }
+      .chip-att.err .ca-st { color: var(--accent-llm); }
 
       /* ── composer ── */
       .composer-dock { padding: var(--s1) var(--s3) var(--s3); }
       .greeting + .composer-dock, .thread-inner .composer-dock { padding-inline: 0; }
       .composer-dock > .composer, .composer-dock > .composer-foot { max-inline-size: 48rem; margin-inline: auto; }
       .composer { background: color-mix(in oklab, var(--canvas), var(--fg) 3%); border: 1px solid var(--line); border-radius: 20px; padding: 0.75rem 0.75rem 0.6rem; transition: border-color 0.2s var(--ease), box-shadow 0.2s var(--ease); }
+      .composer.drop { border-color: var(--accent); background: color-mix(in oklab, var(--accent) 6%, var(--canvas)); }
       .composer:focus-within { border-color: color-mix(in oklab, var(--fg) 24%, transparent); box-shadow: 0 0 0 4px color-mix(in oklab, var(--fg) 5%, transparent); }
       .composer textarea { display: block; inline-size: 100%; resize: none; border: 0; outline: none; background: transparent; color: var(--fg); font-family: var(--mono); font-size: var(--fs-0); line-height: 1.55; padding: 0.35rem 0.5rem; max-block-size: 11rem; overflow-y: auto; }
       .composer textarea::placeholder { color: var(--faint); }
@@ -620,7 +663,7 @@
       .btn-plain:hover { border-color: var(--accent); }
       /* toasts */
       .toasts { position: fixed; inset-block-end: var(--s3); inset-inline: 0; z-index: 50; display: grid; justify-items: center; gap: var(--s1); pointer-events: none; padding-inline: var(--s3); }
-      .toast { pointer-events: auto; display: flex; align-items: center; gap: 0.6ch; max-inline-size: min(34rem, 92vw); padding: 0.6rem 0.9rem; font-size: var(--fs--1); color: var(--fg); background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 12px 28px -16px rgb(0 0 0 / 0.9); animation: toastin 0.25s var(--ease); }
+      .toast { pointer-events: auto; display: flex; align-items: center; gap: 0.6ch; max-inline-size: min(34rem, 92vw); padding: 0.6rem 0.9rem; font-size: var(--fs--1); color: var(--fg); background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 12px 28px -16px rgb(0 0 0 / 0.9); }
       .toast.ok { border-color: color-mix(in oklab, var(--accent-rag) 45%, var(--line)); }
       .toast.err { border-color: color-mix(in oklab, var(--accent-llm) 45%, var(--line)); }
       .toast .tdot { inline-size: 7px; block-size: 7px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
@@ -629,7 +672,6 @@
       .toast.busy .tdot { animation: genblink 0.8s steps(1) infinite; }
       .toast b { color: var(--fg); font-weight: 600; }
       .toast .tdom { color: var(--accent-rag); font-weight: 600; }
-      @keyframes toastin { from { opacity: 0; translate: 0 8px; } }
       .kb-drop {
         display: grid; place-items: center; gap: 0.4rem; text-align: center;
         padding: var(--s4) var(--s3); cursor: pointer; color: var(--muted);
@@ -675,6 +717,8 @@
     </style>
 
     <script>
+      import { gsap, reveal, conceal, openModal, closeModal, animateLogo, pingLogo, RM } from '../lib/motion';
+
       const $ = (s, r = document) => r.querySelector(s);
       const $$ = (s, r = document) => [...r.querySelectorAll(s)];
       const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
@@ -750,7 +794,7 @@
       }
 
       // ── mode (per conversation) ──
-      const FOOT = { llm: 'MODE / LLM · intuition, no sources', rag: 'MODE / RAG · Graph-RAG, grounded with citations' };
+      const FOOT = { llm: 'REASONING · LLM — explains, no sources', rag: 'KNOWLEDGE · Graph-RAG — grounded, with citations' };
       function applyMode(mode) {
         root.dataset.mode = mode;
         $$('.selector [role="switch"]').forEach((b) => b.setAttribute('aria-checked', String(mode === 'rag')));
@@ -758,8 +802,10 @@
       }
       function setMode(mode) {
         const c = current();
+        const changed = root.dataset.mode !== mode;
         if (c) { c.mode = mode; save(); renderConvos(); }
         applyMode(mode);
+        if (changed) $$('[data-logo]').forEach(pingLogo); // the graph "connects" on mode switch
       }
       $$('[data-mode-switch] .sel-switch').forEach((b) => b.addEventListener('click', () => setMode(root.dataset.mode === 'rag' ? 'llm' : 'rag')));
       $$('[data-mode-switch] .sel-side').forEach((s) => s.addEventListener('click', () => setMode(s.dataset.for)));
@@ -832,6 +878,12 @@
         greeting.hidden = !empty;
         if (empty) {
           $('#greetH').textContent = `Good ${greetWord()}, ${S.profile.name || 'there'}.`;
+          const hero = $('.logo-hero');
+          if (!heroDone) { heroDone = true; animateLogo(hero, { delay: booted ? 0.05 : 0.35 }); }
+          else pingLogo(hero);
+          if (booted && !RM) {
+            gsap.from(['.greet-fig', '.greet-h', '.greet-sub', '.pillar'], { y: 12, autoAlpha: 0, stagger: 0.05, duration: 0.5, clearProps: 'transform,opacity,visibility' });
+          }
           // move composer into the greeting block, centered
           if (!greeting.contains(composerForm)) {
             greeting.appendChild(composerForm);
@@ -845,10 +897,45 @@
         } else {
           // dock composer at the bottom
           if (!bottomDock.contains(composerForm)) bottomDock.insertBefore(composerForm, bottomDock.firstChild);
-          for (const m of c.messages) threadInner.appendChild(renderMsg(m));
+          const fresh = [];
+          for (const m of c.messages) {
+            const el = renderMsg(m);
+            threadInner.appendChild(el);
+            if (!seen.has(m)) { seen.add(m); fresh.push(['enter', el, m]); }
+            else if (wasPending.has(m) && !m.pending) { wasPending.delete(m); fresh.push(['answer', el, m]); }
+            if (m.pending) wasPending.add(m);
+          }
+          animateFresh(fresh);
           scrollBottom();
         }
         syncComposer();
+      }
+
+      // ── message motion: only new things move; old history renders still ──
+      const seen = new WeakSet(), wasPending = new WeakSet();
+      let heroDone = false, booted = false;
+      function animateFresh(list) {
+        list.forEach(([kind, el, m], i) => {
+          if (kind === 'enter') {
+            reveal(el, m.role === 'user' ? { x: 16, y: 0, scale: 1, delay: i * 0.05 } : { y: 10, delay: 0.08 + i * 0.05 });
+          }
+          if (kind === 'answer' || (kind === 'enter' && !m.pending && m.role === 'assistant')) {
+            const body = $('.body', el);
+            if (body && kind === 'answer') reveal(body, { y: 6, duration: 0.45 });
+            const cards = $$('.src-card', el);
+            if (cards.length && !RM) gsap.from(cards, { autoAlpha: 0, y: 8, stagger: 0.05, delay: 0.2, clearProps: 'all' });
+            countUp(el);
+          }
+        });
+      }
+      // receipt numbers count up from zero
+      function countUp(scope) {
+        if (RM) return;
+        $$('[data-count]', scope).forEach((b) => {
+          const end = parseFloat(b.dataset.count), dec = +(b.dataset.dec || 0), o = { v: 0 };
+          gsap.to(o, { v: end, duration: 0.9, delay: 0.25, ease: 'power2.out',
+            onUpdate: () => { b.textContent = o.v.toFixed(dec); } });
+        });
       }
 
       function renderMsg(m) {
@@ -865,19 +952,21 @@
           : '<span class="chip ungrounded">UNGROUNDED · INTUITION</span>';
         const label = `<span class="label msg-role"><span class="dot"></span>ASSISTANT · ${(m.mode || 'llm').toUpperCase()}</span>`;
         const bodyHtml = m.pending
-          ? `<div class="gen" role="status" aria-label="Generating">
-               <span class="gen-eq" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
-               <span class="gen-label" data-text="${m.mode === 'rag' ? 'RETRIEVING · GENERATING' : 'GENERATING'}">${m.mode === 'rag' ? 'RETRIEVING · GENERATING' : 'GENERATING'}</span>
-               <span class="gen-caret" aria-hidden="true"></span>
+          ? `<div class="cc" role="status" aria-live="polite">
+               <div class="cc-line"><span class="cc-glyph" aria-hidden="true">${GLYPHS[0]}</span><span class="cc-verb">${esc(live?.verbText || firstVerb(m.mode))}</span><span class="cc-time">${elapsedText()}</span></div>
+               <div class="gpu-live">${gauge('util', 'GPU')}${gauge('vram', 'VRAM')}${gauge('temp', 'TEMP')}${gauge('power', 'POWER')}</div>
+               <span class="gpu-name" data-g="name"></span>
              </div>`
           : (m.error ? `<p class="err">ERROR · ${esc(m.error)} — is the API running? <code>uv run uvicorn api.main:app --port 8000</code></p>` : md(m.content));
+        const receipt = !m.pending && !m.error ? receiptHtml(m.metrics) : '';
         let sources = '';
         if (!m.pending && m.grounded && m.sources?.length) {
           sources = `<details class="sources-wrap" open><summary class="sources-sum">Sources · ${m.sources.length}</summary>
             <div class="sources">${m.sources.map((s) => `
               <div class="src-card" data-n="${s.n}"><div class="src-head"><span class="src-n">[${s.n}]</span><span class="src-path">${esc(s.source)}</span><span class="src-score">${s.score ?? ''}</span></div><p class="src-snip">${esc(s.text || '')}</p></div>`).join('')}</div></details>`;
         }
-        el.innerHTML = `${label}<div class="body"><div class="answer">${chip}${bodyHtml}</div>${sources}</div>`;
+        el.innerHTML = `${label}<div class="body"><div class="answer">${chip}${bodyHtml}</div>${receipt}${sources}</div>`;
+        if (m.pending && lastGpu) paintGpu(el, lastGpu, false);
         // inline [n] → scroll to its source card (scoped to this message)
         $$('.cite', el).forEach((cit) => cit.addEventListener('click', () => {
           const card = $(`.src-card[data-n="${cit.dataset.n}"]`, el);
@@ -889,6 +978,89 @@
 
       const thread = $('#thread');
       function scrollBottom() { requestAnimationFrame(() => { thread.scrollTop = thread.scrollHeight; }); }
+
+      // ── live inference: Claude-Code-style status line + GPU telemetry ──
+      const GLYPHS = ['·', '✢', '✳', '✶', '✻', '✽', '✻', '✶', '✳', '✢'];
+      const VERBS = {
+        rag: ['Retrieving', 'Traversing the graph', 'Ranking passages', 'Connecting relations', 'Cross-referencing', 'Grounding claims', 'Citing sources', 'Assembling evidence'],
+        llm: ['Reasoning', 'Compiling thoughts', 'Refactoring ideas', 'Containerizing intuition', 'Orchestrating', 'Debugging assumptions', 'Engineering an answer', 'Shipping'],
+      };
+      let live = null, lastGpu = null;
+      const firstVerb = (mode) => VERBS[mode === 'rag' ? 'rag' : 'llm'][0] + '…';
+      const elapsedText = () => `(${live ? ((performance.now() - live.t0) / 1000).toFixed(1) : '0.0'}s · ${live?.mode === 'rag' ? 'graph-rag' : 'reasoning'})`;
+      const shortGpu = (n) => String(n || '').replace(/^NVIDIA\s+(GeForce\s+)?/i, '');
+
+      function gauge(k, label) {
+        return `<div class="g" data-g="${k}"><div class="g-top"><span class="gl">${label}</span><b class="gv">—</b></div><span class="gbar"><i></i></span></div>`;
+      }
+      function paintGpu(scope, s, animate = true) {
+        if (!s || !s.available) return;
+        const vals = {
+          util: [s.util, `${s.util}<small>%</small>`],
+          vram: [s.mem_used_mb / s.mem_total_mb * 100, `${(s.mem_used_mb / 1024).toFixed(1)}<small>/${(s.mem_total_mb / 1024).toFixed(0)} GB</small>`],
+          temp: [Math.min(100, s.temp_c / 90 * 100), `${s.temp_c}<small>°C</small>`],
+          power: [Math.min(100, s.power_w / 115 * 100), `${s.power_w.toFixed(0)}<small> W</small>`],
+        };
+        $$('.g', scope).forEach((g) => {
+          const v = vals[g.dataset.g]; if (!v) return;
+          $('.gv', g).innerHTML = v[1];
+          const bar = $('.gbar i', g);
+          if (animate && !RM) gsap.to(bar, { width: `${v[0]}%`, duration: 0.6, ease: 'power2.out', overwrite: 'auto' });
+          else bar.style.width = `${v[0]}%`;
+        });
+        $$('[data-g="name"]', scope).forEach((n) => { n.textContent = `${shortGpu(s.name)} · live`; });
+      }
+      async function pollGpu() {
+        try {
+          const s = await (await fetch('/api/gpu')).json();
+          lastGpu = s;
+          $$('.cc').forEach((cc) => paintGpu(cc, s));
+          if (live) {
+            const loading = s.model_loaded === false;
+            if (loading && !live.loading) swapVerb('Loading model weights…');
+            live.loading = loading;
+          }
+        } catch {}
+      }
+      function swapVerb(text) {
+        live.verbText = text;
+        $$('.cc-verb').forEach((v) => {
+          if (RM) { v.textContent = text; return; }
+          // out = up & fade, in = from below — mirror images of each other
+          gsap.timeline()
+            .to(v, { y: -6, autoAlpha: 0, duration: 0.18, ease: 'power2.in' })
+            .add(() => { v.textContent = text; })
+            .fromTo(v, { y: 6, autoAlpha: 0 }, { y: 0, autoAlpha: 1, duration: 0.18, ease: 'power2.out' });
+        });
+      }
+      function startLive(mode) {
+        stopLive();
+        const verbs = VERBS[mode === 'rag' ? 'rag' : 'llm'];
+        let gi = 0, vi = 0;
+        live = { mode, t0: performance.now(), verbText: verbs[0] + '…', timers: [] };
+        live.timers.push(
+          setInterval(() => { gi = (gi + 1) % GLYPHS.length; $$('.cc-glyph').forEach((g) => { g.textContent = GLYPHS[gi]; }); }, 110),
+          setInterval(() => { $$('.cc-time').forEach((t) => { t.textContent = elapsedText(); }); }, 100),
+          setInterval(() => { if (live.loading) return; vi = (vi + 1) % verbs.length; swapVerb(verbs[vi] + '…'); }, 2400),
+          setInterval(pollGpu, 650),
+        );
+        pollGpu();
+      }
+      function stopLive() { if (!live) return; live.timers.forEach(clearInterval); live = null; }
+
+      function receiptHtml(x) {
+        if (!x || !x.new_tokens) return '';
+        const n = (v, dec = 0) => `<b data-count="${v}" data-dec="${dec}">${Number(v).toFixed(dec)}</b>`;
+        const p = [`<span class="bolt" aria-hidden="true">⚡</span>`,
+          `<span class="rc">${n(x.new_tokens)} tokens</span>`];
+        if (x.tok_s) p.push(`<span class="rc hot">${n(x.tok_s, 1)} tok/s</span>`);
+        p.push(`<span class="rc">generation ${n(x.gen_ms / 1000, 2)}s</span>`);
+        if (x.retrieval_ms != null) p.push(`<span class="rc">retrieval ${n(x.retrieval_ms)}ms</span>`);
+        if (x.prompt_tokens) p.push(`<span class="rc">context ${n(x.prompt_tokens)} tok</span>`);
+        if (x.peak_vram_mb) p.push(`<span class="rc">peak VRAM ${n(x.peak_vram_mb / 1024, 2)} GB</span>`);
+        p.push(`<span class="rc dev">${esc(shortGpu(x.device))} · ${esc(x.dtype || '')}${x.adapter ? ' · LoRA' : ''}</span>`);
+        return `<div class="receipt" aria-label="Inference metrics">${p.join('')}</div>`;
+      }
 
       // ── composer ──
       const ta = $('#askInput'), sendBtn = $('#runBtn');
@@ -919,6 +1091,7 @@
         }
         const aMsg = { role: 'assistant', mode, pending: true };
         c.messages.push(aMsg);
+        startLive(mode);
         save(); renderAll();
 
         busy = true;
@@ -926,10 +1099,11 @@
           const r = await fetch('/api/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: q, mode, top_k: S.profile.topK, history }) });
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
           const d = await r.json();
-          Object.assign(aMsg, { pending: false, content: d.answer, grounded: d.grounded, method: d.method, sources: d.sources || [] });
+          Object.assign(aMsg, { pending: false, content: d.answer, grounded: d.grounded, method: d.method, sources: d.sources || [], metrics: d.metrics || {} });
         } catch (e) {
           Object.assign(aMsg, { pending: false, error: (e && e.message) || String(e), content: '' });
         } finally {
+          stopLive();
           busy = false; save(); renderAll();
         }
       }
@@ -949,9 +1123,9 @@
         $('#setName').value = S.profile.name;
         $('#setTopK').value = S.profile.topK; $('#topKVal').textContent = S.profile.topK;
         $$('#setMode .seg-btn').forEach((b) => b.classList.toggle('active', b.dataset.mode === S.profile.defaultMode));
-        modal.hidden = false; $('#setName').focus();
+        openModal(modal); $('#setName').focus();
       }
-      function closeSettings() { modal.hidden = true; }
+      function closeSettings() { return closeModal(modal); }
       $('#profileBtn').addEventListener('click', openSettings);
       $('#setClose').addEventListener('click', closeSettings);
       $$('[data-close]', modal).forEach((n) => n.addEventListener('click', closeSettings));
@@ -976,8 +1150,8 @@
 
       // ── help / tutorial modal ──
       const help = $('#help');
-      function openHelp() { help.hidden = false; $('#helpClose').focus(); }
-      function closeHelp() { help.hidden = true; }
+      function openHelp() { openModal(help); $('#helpClose').focus(); }
+      function closeHelp() { return closeModal(help); }
       $('#helpBtn').addEventListener('click', () => { openHelp(); closeDrawer(); });
       $('#helpClose').addEventListener('click', closeHelp);
       $('#helpStart').addEventListener('click', () => { closeHelp(); $('#askInput').focus(); });
@@ -995,16 +1169,18 @@
         el.className = 'toast ' + kind;
         el.innerHTML = `<span class="tdot"></span><span>${html}</span>`;
         toastsEl.appendChild(el);
-        const kill = () => { el.style.transition = 'opacity .3s'; el.style.opacity = '0'; setTimeout(() => el.remove(), 300); };
+        reveal(el, { y: 12, scale: 0.96 });
+        let gone = false;
+        const kill = () => { if (gone) return; gone = true; conceal(el).then(() => el.remove()); };
         if (ms) setTimeout(kill, ms);
         return { el, kill };
       }
 
       // ── knowledge base (lakehouse) ──
       const kb = $('#knowledge');
-      function openKB() { kb.hidden = false; loadDocs(); }
-      function closeKB() { kb.hidden = true; }
-      $('#openKbFromSettings').addEventListener('click', () => { closeSettings(); openKB(); });
+      function openKB() { openModal(kb); loadDocs(); }
+      function closeKB() { return closeModal(kb); }
+      $('#openKbFromSettings').addEventListener('click', async () => { await closeSettings(); openKB(); });
       $('#kbClose').addEventListener('click', closeKB);
       $$('[data-close-kb]', kb).forEach((n) => n.addEventListener('click', closeKB));
       document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !kb.hidden) closeKB(); });
@@ -1031,28 +1207,74 @@
         if (!r.ok) throw new Error(d.detail || ('HTTP ' + r.status));
         return d;
       }
+      // ── composer attachment chips — the exit is the entrance played backwards ──
+      const attachments = $('#attachments');
+      const RING = '<svg class="ring" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-dasharray="38 100"/></svg>';
+      const TICK = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path class="tick" pathLength="1" d="M5 12.5l4.2 4.2L19 7.5"/></svg>';
+      const CROSS = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path class="tick" pathLength="1" d="M7 7l10 10M17 7 7 17"/></svg>';
+
+      function addChip(file) {
+        const chip = document.createElement('div');
+        chip.className = 'chip-att run';
+        chip.innerHTML = `<span class="ca-ico">${RING}</span><span class="ca-name" title="${esc(file.name)}">${esc(file.name)}</span><span class="ca-st">reading…</span>`;
+        const first = !attachments.children.length;
+        attachments.appendChild(chip);
+        if (first) reveal(attachments, { height: true, y: 0, scale: 1 }); // the row opens…
+        reveal(chip, { width: true, y: 4, scale: 0.92 });                 // …and the chip grows in
+        const spin = RM ? null : gsap.to($('.ring', chip), { rotation: 360, transformOrigin: '50% 50%', repeat: -1, ease: 'none', duration: 0.8 });
+        return { chip, spin };
+      }
+      function settleChip({ chip, spin }, kind, label) {
+        spin?.kill();
+        const w0 = chip.offsetWidth;
+        chip.className = 'chip-att ' + kind;
+        const ico = $('.ca-ico', chip);
+        ico.innerHTML = kind === 'err' ? CROSS : TICK;
+        $('.ca-st', chip).textContent = label;
+        if (!RM) {
+          const w1 = chip.offsetWidth; // the label changed: glide to the new width
+          gsap.fromTo(chip, { width: w0 }, { width: w1, duration: 0.3, ease: 'power2.out', overwrite: 'auto', clearProps: 'width' });
+          gsap.fromTo(ico, { scale: 0.6 }, { scale: 1, duration: 0.42, ease: 'back.out(3)' });
+          gsap.fromTo($('.tick', ico), { strokeDasharray: 1, strokeDashoffset: 1 }, { strokeDashoffset: 0, duration: 0.35, delay: 0.05, ease: 'power2.out' });
+        }
+        setTimeout(() => removeChip(chip), kind === 'ok' ? 2800 : 3800);
+      }
+      async function removeChip(chip) {
+        const last = attachments.children.length === 1;
+        // chip shrinks back to zero width; if it was the last one the row closes too —
+        // both are their own entrances reversed, so the exit mirrors the entrance.
+        await Promise.all([conceal(chip), last ? conceal(attachments) : Promise.resolve()]);
+        chip.remove();
+        if (!attachments.children.length) gsap.set(attachments, { clearProps: 'all' });
+      }
+
       async function importFiles(files, { queue = false } = {}) {
         if (!files.length) return;
         if (!queue) attachBtn.classList.add('busy');
         for (const f of files) {
-          let row = null;
-          if (queue) { row = document.createElement('div'); row.className = 'kb-item run'; row.innerHTML = `<span class="n">${esc(f.name)}</span><span class="st">reading…</span>`; kbQueue.prepend(row); }
-          const t = queue ? null : toast(`Reading <b>${esc(f.name)}</b>…`, 'busy', 0);
+          let row = null, chip = null;
+          if (queue) {
+            row = document.createElement('div'); row.className = 'kb-item run';
+            row.innerHTML = `<span class="n">${esc(f.name)}</span><span class="st">reading…</span>`;
+            kbQueue.prepend(row); reveal(row, { y: 6 });
+          } else {
+            chip = addChip(f);
+          }
           try {
             const d = await ingestFile(f);
             if (d.status === 'ingested') {
               if (row) { row.className = 'kb-item ok'; $('.st', row).textContent = `+${d.chunks_added} · ${d.domain}`; }
-              if (t) { t.el.className = 'toast ok'; t.el.innerHTML = `<span class="tdot"></span><span><b>${esc(f.name)}</b> added to <span class="tdom">${esc(d.domain)}</span> — you can ask about it now.</span>`; setTimeout(t.kill, 5000); }
+              if (chip) settleChip(chip, 'ok', `added to ${d.domain}`);
             } else if (d.status === 'duplicate') {
               if (row) { row.className = 'kb-item dup'; $('.st', row).textContent = 'already added'; }
-              if (t) { t.el.className = 'toast'; t.el.innerHTML = `<span class="tdot"></span><span><b>${esc(f.name)}</b> is already in the knowledge base.</span>`; setTimeout(t.kill, 3500); }
+              if (chip) settleChip(chip, 'dup', 'already known');
             } else {
               if (row) { row.className = 'kb-item err'; $('.st', row).textContent = d.status; }
-              if (t) { t.el.className = 'toast err'; t.el.innerHTML = `<span class="tdot"></span><span>Couldn't read <b>${esc(f.name)}</b> (${d.status}).</span>`; setTimeout(t.kill, 4000); }
+              if (chip) settleChip(chip, 'err', `couldn't read (${d.status})`);
             }
           } catch (e) {
             if (row) { row.className = 'kb-item err'; $('.st', row).textContent = 'error'; }
-            if (t) { t.el.className = 'toast err'; t.el.innerHTML = `<span class="tdot"></span><span>Upload failed for <b>${esc(f.name)}</b>.</span>`; setTimeout(t.kill, 4000); }
+            if (chip) settleChip(chip, 'err', 'upload failed');
           }
         }
         if (!queue) attachBtn.classList.remove('busy');
@@ -1070,6 +1292,11 @@
       const attachBtn = $('#attachBtn'), composerFile = $('#composerFile');
       attachBtn.addEventListener('click', () => composerFile.click());
       composerFile.addEventListener('change', () => { importFiles([...composerFile.files], { queue: false }); composerFile.value = ''; });
+      // drop files straight onto the composer
+      const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+      ['dragenter', 'dragover'].forEach((ev) => composerForm.addEventListener(ev, (e) => { if (hasFiles(e)) { e.preventDefault(); composerForm.classList.add('drop'); } }));
+      ['dragleave', 'drop'].forEach((ev) => composerForm.addEventListener(ev, () => composerForm.classList.remove('drop')));
+      composerForm.addEventListener('drop', (e) => { if (e.dataTransfer?.files?.length) { e.preventDefault(); importFiles([...e.dataTransfer.files]); } });
 
       // ── backend info / health ──
       (async function info() {
@@ -1087,8 +1314,32 @@
       })();
 
       // ── boot ──
+      // history renders still; a reply interrupted by a reload is marked as such
+      S.convos.forEach((c) => c.messages.forEach((m) => {
+        if (m.pending) Object.assign(m, { pending: false, error: 'interrupted (page reloaded)', content: '' });
+        seen.add(m);
+      }));
       if (!S.convos.length) newConvo(); else { if (!current()) S.currentId = S.convos[0].id; applyProfile(); renderAll(); }
       applyProfile();
+
+      // ── intro choreography + animated logos ──
+      const sideLogo = $('.logo-side'), heroLogo = $('.logo-hero');
+      animateLogo(sideLogo, { delay: 0.15 });
+      $('#brand').addEventListener('mouseenter', () => pingLogo(sideLogo));
+      heroLogo.addEventListener('mouseenter', () => pingLogo(heroLogo));
+      if (!RM) {
+        const intro = gsap.timeline({ defaults: { ease: 'power3.out', duration: 0.6 } });
+        intro.from('.side', { x: -18, autoAlpha: 0, clearProps: 'transform,opacity,visibility' }, 0)
+             .from('.side .new-chat, .side .side-section, .convo, .side-link, .profile', { y: 8, autoAlpha: 0, stagger: 0.04, duration: 0.45, clearProps: 'transform,opacity,visibility' }, 0.15);
+        if (!greeting.hidden) {
+          intro.from(['.greet-fig', '.greet-h', '.greet-sub', '.pillar', '#composerForm', '.composer-foot', '.suggest'],
+            { y: 14, autoAlpha: 0, stagger: 0.055, clearProps: 'transform,opacity,visibility' }, 0.45);
+        } else {
+          intro.from('.topbar', { y: -8, autoAlpha: 0, clearProps: 'transform,opacity,visibility' }, 0.1)
+               .from('#bottomDock', { y: 16, autoAlpha: 0, clearProps: 'transform,opacity,visibility' }, 0.25);
+        }
+      }
+      booted = true;
     </script>
   </body>
 </html>
