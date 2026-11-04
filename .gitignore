@@ -12,6 +12,7 @@ wheels/
 # Index FAISS généré + lakehouse local (données générées au runtime)
 data/index/
 data/lakehouse/
+data/tessdata/
 
 # Web (Astro / pnpm)
 web/node_modules/

@@ -8,12 +8,22 @@
 from __future__ import annotations
 
 import re
+import time
 from dataclasses import dataclass, field
 
 from .config import Settings, settings
+from .diagrams import attach_diagram, diagram_kind, extract_diagram, normalize_answer, visual_hint, wants_visual
 from .graph import KnowledgeGraph
 from .index import SearchHit, VectorStore
 from .llm import LLM
+from .study import wants_study
+
+_ANALOGY_LABEL = {
+    "en": "In plain words — an analogy, not from the source:",
+    "es": "En palabras sencillas — una analogía, no viene de la fuente:",
+    "fr": "En mots simples — une analogie, pas issue de la source :",
+    "de": "Einfach gesagt — eine Analogie, nicht aus der Quelle:",
+}
 
 _CITE_RE = re.compile(r"\[\d+\]")  # marqueurs de citation [n]
 
@@ -38,6 +48,16 @@ _STARTERS = {
     "pourquoi", "le", "les", "une", "des", "et", "ce", "c", "was", "wie",
     "warum", "welche", "welcher", "wann", "wer", "wo", "ist", "sind", "ein",
     "eine", "der", "die", "das", "und", "oder", "mit", "für", "von", "zu",
+    # verbes de requête / impératifs (souvent capitalisés en début de phrase) — EN/ES/FR/DE
+    "show", "draw", "sketch", "illustrate", "visualize", "visualise", "help", "compare",
+    "walk", "me", "us",
+    "explica", "explícame", "explicame", "explicar", "muestra", "muéstrame", "muestrame",
+    "dibuja", "dibújame", "dame", "hazme", "haz", "dime", "compara", "enséñame", "ensename",
+    "puedes", "podrías", "podrias", "cómo",
+    "explique", "expliquez", "explique-moi", "montre", "montrez", "dessine", "décris",
+    "décrivez", "donne", "donnez", "peux", "pourrais", "moi",
+    "erkläre", "erklär", "erklären", "zeig", "zeige", "zeigen", "zeichne", "beschreibe",
+    "gib", "vergleiche", "kannst", "könntest", "mir", "bitte",
 }
 _TOK_RE = re.compile(r"[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9]+")
 
@@ -50,13 +70,17 @@ def _proper_tokens(question: str) -> set[str]:
     d'ancrage robuste au multilingue.
     """
     out: set[str] = set()
+    # En allemand TOUS les noms prennent une majuscule (« Architektur ») : une simple
+    # majuscule initiale n'y signale pas une techno. On n'y retient que les formes sans
+    # ambiguïté : casse interne (MLOps, mTLS), chiffres (K8s), sigles (AWS, CI).
+    german = detect_lang(question) == "de"
     for t in _TOK_RE.findall(question):
         low = t.lower()
-        if low in _STARTERS or len(low) < 2:
-            continue
+        if low in _STARTERS or len(low) < 2 or wants_visual(t):
+            continue  # mot d'amorce, verbe de requête ou mot « visuel » (Diagramm, Schéma…)
         inner_upper = any(c.isupper() for c in t[1:])
         has_digit = any(c.isdigit() for c in t)
-        if inner_upper or has_digit or t[0].isupper():
+        if inner_upper or has_digit or (t[0].isupper() and not german):
             out.add(low)
     return out
 
@@ -138,7 +162,7 @@ def detect_lang(text: str) -> str:
 
 # Refus de périmètre (hors ingénierie logicielle), dans les 4 langues.
 _SCOPE_DECLINE = (
-    "I'm the **Software Engineer assistant** and I only cover software engineering "
+    "I'm **Episteme**, a software-engineering knowledge platform, and I only cover software engineering "
     "(DevOps, MLOps, DataOps, Data & AI Engineering…). Please rephrase your "
     "question around one of these topics.\n\n"
     "Je n'enseigne que l'ingénierie logicielle (DevOps, MLOps, DataOps, Data & "
@@ -157,15 +181,18 @@ _SCOPE_DECLINE = (
 # --------------------------------------------------------------------------
 def rag_system_prompt(cfg: Settings) -> str:
     return (
-        "Tu es l'assistant Software Engineer, enseignant de niveau doctorat en "
-        f"ingénierie logicielle, spécialisé en : {cfg.domains_str()}.\n\n"
+        "Tu es Episteme, une plateforme de connaissances pour l'ingénierie logicielle, "
+        "qui enseigne au niveau doctorat. Devise : comprendre, relier, concevoir. "
+        f"Domaines : {cfg.domains_str()}.\n\n"
         "RÈGLES IMPÉRATIVES (mode ANCRÉ) :\n"
         "1. Réponds UNIQUEMENT à partir du CONTEXTE fourni (extraits numérotés). "
         "N'ajoute jamais un fait, un chiffre, une commande ou un nom absent du contexte.\n"
         "2. Appuie CHAQUE affirmation sur une citation [n] renvoyant à l'extrait utilisé "
         "(ex. « Un Pod regroupe un ou plusieurs conteneurs [2]. »).\n"
         "3. Pédagogie Feynman : définition claire d'abord, puis explication par les "
-        "principes, puis UN exemple concret (commande, extrait, scénario) tiré du contexte.\n"
+        "principes, puis UN exemple concret (commande, extrait, scénario) tiré du contexte. "
+        "N'écris PAS d'analogie dans le texte : une analogie clairement étiquetée est ajoutée "
+        "séparément, le texte ne doit contenir que ce que disent les sources.\n"
         "4. Si le contexte ne contient pas la réponse, sois HONNÊTE : dis simplement "
         "« je ne sais pas » / « le corpus ne couvre pas ce point » — n'invente RIEN, "
         "ne cite aucun extrait inexistant.\n"
@@ -179,8 +206,9 @@ def rag_system_prompt(cfg: Settings) -> str:
 
 def llm_system_prompt(cfg: Settings) -> str:
     return (
-        "Tu es l'assistant Software Engineer, enseignant de niveau doctorat en "
-        f"ingénierie logicielle, spécialisé en : {cfg.domains_str()}.\n\n"
+        "Tu es Episteme, une plateforme de connaissances pour l'ingénierie logicielle, "
+        "qui enseigne au niveau doctorat. Devise : comprendre, relier, concevoir. "
+        f"Domaines : {cfg.domains_str()}.\n\n"
         "STYLE (à la Feynman) : explique à partir des premiers principes, avec une "
         "analogie simple et AU MOINS un exemple concret (commande, extrait de code ou "
         "scénario réel). La clarté prime sur le jargon ; définis les termes que tu "
@@ -218,7 +246,10 @@ class RAGAnswer:
     mode: str                       # "rag" | "llm"
     grounded: bool
     hits: list[SearchHit] = field(default_factory=list)
-    method: str = "llm"             # "graph" | "vector" | "llm"
+    method: str = "llm"             # "graph" | "vector" | "llm" | "scope" | "idk"
+    metrics: dict = field(default_factory=dict)  # métriques d'inférence (tokens, tok/s, VRAM…)
+    visual: bool = False            # réponse avec diagramme Mermaid
+    verification: dict | None = None  # vérification phrase par phrase contre les sources
 
     @property
     def sources(self) -> list[dict]:
@@ -266,6 +297,7 @@ class RAGPipeline:
         self._in_vecs = None   # ancres in-domaine (lazy)
         self._off_vecs = None  # ancres hors-sujet (lazy)
         self._vocab = None     # vocabulaire du corpus (lazy)
+        self.progress: dict | None = None  # étape en cours (mode étude), lue par /gpu
 
     @property
     def uses_graph(self) -> bool:
@@ -367,19 +399,62 @@ class RAGPipeline:
         context = format_context(hits)
         return self._rag_sys, RAG_USER_TEMPLATE.format(context=context, question=question)
 
-    def ask_llm(self, question: str, history: list[dict] | None = None) -> RAGAnswer:
+    def _visual(self, question: str, visual: bool) -> bool:
+        """Visuel si demandé par le toggle OU par la formulation (« explique visuellement… »,
+        « diagrama », « schéma »…) — par défaut."""
+        return bool(visual or wants_visual(question))
+
+    def _verify(self, answer: str, evidence: list[str], question: str) -> tuple[dict | None, dict]:
+        """Chaque affirmation de la réponse est confrontée aux sources (voir verify.py)."""
+        from .verify import verify
+
+        t0 = time.perf_counter()
+        try:
+            lang = detect_lang(question)
+            src_lang = detect_lang(" ".join(evidence)[:4000])
+            v = verify(answer, evidence, self.store.embedder, lang, cross_lingual=src_lang != lang)
+        except Exception:  # la vérification ne doit jamais faire échouer une réponse
+            v = None
+        if v:
+            v.pop("best_sims", None)
+        return v, {"verify_ms": round((time.perf_counter() - t0) * 1000)}
+
+    def _with_diagram(self, answer: str, evidence: str, question: str) -> tuple[str, dict]:
+        """Étape 2 du mode visuel : le diagramme est EXTRAIT de la réponse écrite, chaque
+        composant vérifié contre la réponse + les sources, puis construit par le code.
+        Rien de vérifiable → pas de diagramme (et une note honnête)."""
+        t0 = time.perf_counter()
+        res = extract_diagram(answer, evidence, self.llm, diagram_kind(question))
+        return attach_diagram(answer, res["code"], detect_lang(question)), {
+            "diagram_ms": round((time.perf_counter() - t0) * 1000),
+            "diagram_edges": res["kept"], "diagram_rejected": res["rejected"],
+        }
+
+    def ask_llm(
+        self, question: str, history: list[dict] | None = None, visual: bool = False
+    ) -> RAGAnswer:
         """MODE LLM : intuition pure (professeur), consciente du fil de discussion."""
         if not self.in_scope(self._augment(history, question)):
             return self._decline(question, "llm")
         lang = detect_lang(question)
-        user = f"{_LANG_DIRECTIVE[lang]}\n\n{question}\n\n{_LANG_FINAL[lang]}"
+        vis = self._visual(question, visual)
+        extra = f"\n\n{visual_hint(diagram_kind(question))}" if vis else ""
+        user = f"{_LANG_DIRECTIVE[lang]}\n\n{question}{extra}\n\n{_LANG_FINAL[lang]}"
         answer = self.llm.generate(self._llm_sys, user, history=self._prep_history(history))
+        metrics = dict(self.llm.last_stats or {})
+        if vis:
+            answer, dm = self._with_diagram(answer, "", question)
+            metrics.update(dm)
+        else:
+            answer = normalize_answer(answer)
         return RAGAnswer(
-            question=question, answer=answer, mode="llm", grounded=False, hits=[], method="llm"
+            question=question, answer=answer, mode="llm", grounded=False,
+            hits=[], method="llm", metrics=metrics, visual=vis,
         )
 
     def ask_rag(
-        self, question: str, top_k: int | None = None, history: list[dict] | None = None
+        self, question: str, top_k: int | None = None, history: list[dict] | None = None,
+        visual: bool = False,
     ) -> RAGAnswer:
         """MODE RAG : réponse ancrée + citations, consciente du fil de discussion."""
         search_query = self._augment(history, question)
@@ -391,7 +466,9 @@ class RAGPipeline:
                 question=question, answer=_IDK[detect_lang(question)], mode="rag",
                 grounded=False, hits=[], method="idk",
             )
+        t_ret = time.perf_counter()
         hits, method = self.retrieve(search_query, top_k=top_k)
+        retrieval_ms = round((time.perf_counter() - t_ret) * 1000)
         # Ancrage insuffisant → réponse honnête « je ne sais pas » (pas d'invention).
         best = max((h.score for h in hits), default=0.0)
         if not hits or best < self.cfg.rag_min_score:
@@ -404,10 +481,25 @@ class RAGPipeline:
                 method="idk",
             )
         system_prompt, user_prompt = self.build_prompt(question, hits)
+        vis = self._visual(question, visual)
+        if vis:
+            user_prompt += f"\n\n{visual_hint(diagram_kind(question))}"
         user_prompt = f"{user_prompt}\n\n{_LANG_FINAL[detect_lang(question)]}"
         answer = self.llm.generate(system_prompt, user_prompt, history=self._prep_history(history))
+        metrics = {**(self.llm.last_stats or {}), "retrieval_ms": retrieval_ms, "chunks": len(hits)}
+        if self.cfg.analogies:
+            answer = self._with_answer_analogy(normalize_answer(answer), detect_lang(question))
+        if vis:
+            evidence = "\n".join(h.chunk["text"] for h in hits)
+            answer, dm = self._with_diagram(answer, evidence, question)
+            metrics.update(dm)
+        else:
+            answer = normalize_answer(answer)
+        verification, vm = self._verify(answer, [h.chunk["text"] for h in hits], question)
+        metrics.update(vm)
         return RAGAnswer(
-            question=question, answer=answer, mode="rag", grounded=True, hits=hits, method=method
+            question=question, answer=answer, mode="rag", grounded=True,
+            hits=hits, method=method, visual=vis, metrics=metrics, verification=verification,
         )
 
     def ask(
@@ -416,10 +508,148 @@ class RAGPipeline:
         mode: str = "rag",
         top_k: int | None = None,
         history: list[dict] | None = None,
+        visual: bool = False,
     ) -> RAGAnswer:
-        if mode == "llm":
-            return self.ask_llm(question, history=history)
-        return self.ask_rag(question, top_k=top_k, history=history)
+        t0 = time.perf_counter()
+        res = None
+        if wants_study(question):  # « résume le chapitre 2 de X » : lecture complète, pas top-k
+            res = self.ask_study(question, visual=visual, strict=(mode != "llm"))
+        if res is None and mode == "llm":
+            res = self.ask_llm(question, history=history, visual=visual)
+        elif res is None:
+            res = self.ask_rag(question, top_k=top_k, history=history, visual=visual)
+        res.metrics["total_ms"] = round((time.perf_counter() - t0) * 1000)
+        return res
+
+    # ── Mode étude : un chapitre / une section / un document entier ─────────
+    def _progress(self, step: str, i: int, n: int) -> None:
+        self.progress = {"step": step, "i": i, "n": n}
+
+    def ask_study(self, question: str, visual: bool = False, strict: bool = True) -> RAGAnswer | None:
+        """Résume / explique une partie d'un document de façon systématique (voir study.py).
+        Renvoie None si aucun document n'est identifiable et `strict` est faux (mode LLM :
+        on retombe sur une réponse normale)."""
+        from . import lake
+        from .study import (_NO_DOC, _NOT_FOUND, Node, assemble, chapter_titles, find_target,
+                            load_book, parse_target, resolve_document, summarize_target)
+
+        lang = detect_lang(question)
+        docs = lake.list_documents(self.cfg)
+        doc = resolve_document(question, docs)
+        if doc is None:
+            if not strict:
+                return None
+            pdfs = sorted({d["filename"] for d in docs if d["filename"].lower().endswith(".pdf")})[:15]
+            msg = _NO_DOC.get(lang, _NO_DOC["en"]) + "\n\n" + "\n".join(f"- {n}" for n in pdfs)
+            return RAGAnswer(question=question, answer=msg, mode="rag", grounded=False, method="study")
+        try:
+            self._progress(f"Opening {doc['filename'][:48]}", 0, 1)
+            book = load_book(doc["s3_uri"], doc["filename"])
+            # chapitre n° > section n° > sujet cité (titre, sinon pages qui en parlent) > tout
+            target = parse_target(question)
+            node = find_target(book, target, question)
+            if node is None and target.chapter is None and not target.section:
+                roots = book.nodes
+                while len(roots) == 1 and roots[0].children:  # « Table of Contents » englobant
+                    roots = roots[0].children
+                node = Node(0, re.sub(r"\.\w+$", "", book.name), 1, len(book.pages), roots)
+            if node is None:
+                titles = chapter_titles(book)
+                msg = _NOT_FOUND.get(lang, _NOT_FOUND["en"]).format(doc=book.name) + "\n\n" + \
+                      "\n".join(f"- {t}" for t in titles[:20])
+                return RAGAnswer(question=question, answer=msg, mode="rag", grounded=False, method="study")
+
+            final = _LANG_FINAL[lang]
+            result = summarize_target(book, node, self.llm, final, self._progress,
+                                      fix=lambda lines: self._ensure_lang(lines, lang))
+            answer = assemble(book, node, result, lang)
+            answer = self._with_analogy(answer, result, lang)
+
+            # chaque section résumée devient une source citée « document · pages · titre »
+            from .study import _pages
+            hits = []
+            for u, _, excerpt in result["sections"]:
+                pages = _pages(u, book)
+                hits.append(SearchHit(score=1.0, chunk={
+                    "source": f"{book.name} · {pages} · {u.title}" if pages else f"{book.name} · {u.title}",
+                    "category": doc.get("domain", ""), "text": excerpt, "chunk_index": u.start,
+                }))
+            metrics = {"sections": len(result["sections"]), "pages": node.end - node.start + 1}
+            texts = ["\n".join(book.pages[u.start - 1: u.end]) for u, _, _ in result["sections"]]
+            if visual or wants_visual(question):
+                # la figure d'un chapitre = sa structure réelle (chapitre → sections →
+                # notion phare), pas une extraction du modèle : fiable par construction
+                from .study import structure_diagram
+                code = structure_diagram(node, result, book)
+                head, sep, rest = answer.partition("\n\n### ")  # vue d'ensemble → figure → sections
+                answer = (f"{head}\n\n```mermaid\n{code}\n```\n\n### {rest}" if code and sep
+                          else attach_diagram(answer, code, lang))
+                metrics.update({"diagram_edges": len(result["sections"])})
+            self._progress("Checking every claim against the pages", 1, 1)
+            verification, vm = self._verify(answer, texts, question)
+            metrics.update(vm)
+            return RAGAnswer(question=question, answer=answer, mode="rag", grounded=True, hits=hits,
+                             method="study", visual=bool(visual or wants_visual(question)), metrics=metrics,
+                             verification=verification)
+        finally:
+            self.progress = None
+
+    def _with_analogy(self, answer: str, result: dict, lang: str) -> str:
+        """Mode étude : l'analogie va après la vue d'ensemble."""
+        if not result.get("overview"):
+            return answer
+        basis = result["overview"] + "\n" + "\n".join(f"- {t}" for t in result.get("takeaways", []))
+        block = self._analogy_block(basis, lang)
+        if not block:
+            return answer
+        head, sep, rest = answer.partition("\n\n### ")  # après la vue d'ensemble
+        return f"{head}\n\n{block}\n\n### {rest}" if sep else f"{answer}\n\n{block}"
+
+    def _with_answer_analogy(self, answer: str, lang: str) -> str:
+        """Réponse RAG : l'analogie va après le premier paragraphe (la définition)."""
+        basis = re.sub(r"```.*?```", "", answer, flags=re.S)[:1500]
+        block = self._analogy_block(basis, lang)
+        if not block:
+            return answer
+        first, sep, rest = answer.partition("\n\n")
+        return f"{first}\n\n{block}\n\n{rest}" if sep else f"{answer}\n\n{block}"
+
+    def _ensure_lang(self, lines: list[str], lang: str) -> list[str]:
+        """Le petit modèle répond parfois dans la langue des SOURCES (anglais) malgré la
+        consigne : on retraduit alors, ligne à ligne, sans rien ajouter."""
+        if not lines or detect_lang(" ".join(lines)) == lang:
+            return lines
+        names = {"en": "English", "es": "Spanish", "fr": "French", "de": "German"}
+        numbered = "\n".join(f"{i}. {t}" for i, t in enumerate(lines, 1))
+        raw = self.llm.generate(
+            f"Translate each numbered line into {names[lang]}. Keep the numbering, technical terms, "
+            "names and numbers unchanged. Output only the translated numbered lines.",
+            f"{numbered}\n\n{_LANG_FINAL[lang]}", max_new_tokens=60 * len(lines) + 60, repetition_penalty=1.05,
+        )
+        got = dict((int(m.group(1)), m.group(2).strip())
+                   for m in re.finditer(r"^\s*(\d+)[.)]\s+(.+)$", raw or "", re.M))
+        out = [got.get(i, t) for i, t in enumerate(lines, 1)]
+        return out if detect_lang(" ".join(out)) == lang else lines
+
+    def _analogy_block(self, basis: str, lang: str) -> str | None:
+        """Une analogie à la Feynman, CLAIREMENT étiquetée : c'est une aide à l'intuition,
+        pas un fait du document (la vérification ne la compte pas comme une affirmation)."""
+        self._progress("Finding an analogy", 1, 1)
+        raw = self.llm.generate(
+            "You are a teacher in the style of Richard Feynman. Explain the core idea below to a "
+            "beginner with ONE everyday analogy (cooking, traffic, a library, a restaurant kitchen…), "
+            "in 2 to 4 sentences. Start directly with the analogy. Do not add new technical facts.",
+            f"CORE IDEA:\n{basis}\n\n{_LANG_FINAL[lang]}", max_new_tokens=160, repetition_penalty=1.08,
+        ).strip()
+        if not raw:
+            return None
+        # UN seul paragraphe, entièrement dans l'encadré étiqueté (sinon la suite de
+        # l'analogie se lirait comme un fait du document), 4 phrases au plus
+        flat = re.sub(r"\s+", " ", raw.replace("\n", " ")).strip()
+        flat = " ".join(re.split(r"(?<=[.!?])\s+", flat)[:4])
+        flat = self._ensure_lang([flat], lang)[0]
+        label = _ANALOGY_LABEL.get(lang, _ANALOGY_LABEL["en"])
+        return f"> 💡 **{label}** {flat}"
 
 
 # Alias de compatibilité (ancien nom du prompt système RAG).

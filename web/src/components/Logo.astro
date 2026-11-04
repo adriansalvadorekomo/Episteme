@@ -1,0 +1,29 @@
+---
+// Episteme mark — an "E" whose three arms end in graph nodes:
+// KNOWLEDGE (top) · RELATIONS (middle) · REASONING (bottom), joined by a relation edge.
+// Animated by src/lib/motion.ts → animateLogo() (draw, pop, connect, then a signal
+// travels the graph). Paths use pathLength="1" so the draw-on needs no measuring.
+interface Props { size?: number; class?: string; label?: string }
+const { size = 28, class: cls = '', label } = Astro.props;
+---
+<svg
+  class={`logo ${cls}`}
+  width={size}
+  height={size}
+  viewBox="0 0 40 40"
+  fill="none"
+  role={label ? 'img' : undefined}
+  aria-label={label}
+  aria-hidden={label ? undefined : 'true'}
+  data-logo
+>
+  <path class="lg-link" pathLength="1" d="M30 8 L26 20 L30 32" />
+  <path class="lg-spine" pathLength="1" d="M10 8 V32" />
+  <path class="lg-arm" pathLength="1" d="M10 8 H25.5" />
+  <path class="lg-arm" pathLength="1" d="M10 20 H21.5" />
+  <path class="lg-arm" pathLength="1" d="M10 32 H25.5" />
+  <circle class="lg-node" cx="30" cy="8" r="3.3" />
+  <circle class="lg-node" cx="26" cy="20" r="3.3" />
+  <circle class="lg-node" cx="30" cy="32" r="3.3" />
+  <circle class="lg-signal" cx="0" cy="0" r="1.7" opacity="0" />
+</svg>

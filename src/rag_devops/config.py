@@ -60,6 +60,9 @@ class Settings:
     # Vide => modèle de base inchangé.
     llm_adapter: str = _env("RAG_LLM_ADAPTER", "")
 
+    # Analogie à la Feynman, étiquetée, ajoutée aux réponses ancrées (un appel LLM de plus).
+    analogies: bool = _env("RAG_ANALOGIES", "1") not in ("0", "false", "False", "")
+
     # --- Récupération ---------------------------------------------------
     top_k: int = int(_env("RAG_TOP_K", "5"))
 
@@ -117,6 +120,12 @@ class Settings:
             if d.strip()
         ]
     )
+
+    # --- OCR (pages scannées, images) ----------------------------------
+    # "auto" : OCR des seules pages sans texte mais illustrées ; "force" : toutes ; "off".
+    ocr_mode: str = _env("RAG_OCR", "auto")
+    ocr_dpi: int = int(_env("RAG_OCR_DPI", "300"))
+    ocr_langs: str = _env("RAG_OCR_LANGS", "")  # vide = eng+fra+spa+deu selon dispo
 
     # --- Lakehouse (MinIO/S3 + Apache Iceberg) --------------------------
     # Source de vérité des documents que l'assistant apprend. MinIO fournit un

@@ -17,6 +17,7 @@ from contextlib import asynccontextmanager
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
 from rag_devops import lake
@@ -47,7 +48,23 @@ async def lifespan(app: FastAPI):
     graph = KnowledgeGraph.load(settings) if settings.use_graph else None
     state["store"] = store
     state["graph"] = graph
-    state["pipeline"] = RAGPipeline(store, llm, settings, graph=graph)
+    state["pipeline"] = pipeline = RAGPipeline(store, llm, settings, graph=graph)
+
+    # Préchauffage en tâche de fond : l'API répond tout de suite, et la première
+    # question n'attend ni le chargement des modèles ni le calcul des caches.
+    def _warm() -> None:
+        try:
+            store.embedder.model           # modèle d'embeddings
+            pipeline._ensure_scope_vecs()  # ancres du garde-fou de périmètre
+            pipeline.corpus_df             # fréquences documentaires (garde-fou IDK)
+            store.vectors                  # matrice d'embeddings (graphe / re-ranking)
+            llm.load()                     # LLM (verrou : jamais chargé deux fois)
+        except Exception as exc:  # noqa: BLE001
+            print(f"(préchauffage incomplet : {exc})")
+
+    import threading
+
+    threading.Thread(target=_warm, name="warmup", daemon=True).start()
     yield
     state.clear()
 
@@ -79,6 +96,13 @@ class AskRequest(BaseModel):
     top_k: int | None = Field(default=None, ge=1, le=15)
     # Mémoire conversationnelle : tours précédents (du plus ancien au plus récent).
     history: list[Turn] = Field(default_factory=list)
+    # Force un diagramme (toggle « Visual »). Sinon détecté depuis la formulation.
+    visual: bool = False
+
+
+class RepairRequest(BaseModel):
+    code: str = Field(..., min_length=3, max_length=6000)
+    error: str = Field(default="", max_length=2000)
 
 
 class SearchRequest(BaseModel):
@@ -91,6 +115,12 @@ class SummarizeRequest(BaseModel):
 
 
 # --- Endpoints ---------------------------------------------------------
+@app.get("/", include_in_schema=False)
+def root():
+    """Redirect bare root to the interactive API docs."""
+    return RedirectResponse(url="/docs")
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "index_loaded": "store" in state}
@@ -138,7 +168,7 @@ def search(req: SearchRequest):
 def ask(req: AskRequest):
     pipeline: RAGPipeline = state["pipeline"]
     history = [{"role": t.role, "content": t.content} for t in req.history]
-    result = pipeline.ask(req.question, mode=req.mode, top_k=req.top_k, history=history)
+    result = pipeline.ask(req.question, mode=req.mode, top_k=req.top_k, history=history, visual=req.visual)
     return {
         "question": result.question,
         "answer": result.answer,
@@ -146,7 +176,32 @@ def ask(req: AskRequest):
         "grounded": result.grounded,
         "method": result.method,  # "graph" | "vector" | "llm"
         "sources": result.sources,  # numérotées [n] : n, source, category, score, text
+        "metrics": result.metrics,  # tokens, tok/s, gen_ms, retrieval_ms, peak VRAM…
+        "visual": result.visual,    # la réponse contient un diagramme Mermaid
+        "verification": result.verification,  # {claims, supported, score, unsupported:[{text, reason}]}
     }
+
+
+@app.post("/diagram/repair")
+def diagram_repair(req: RepairRequest):
+    """Le navigateur n'a pas pu analyser un diagramme : le LLM le corrige (un essai)."""
+    from rag_devops.diagrams import repair_mermaid
+
+    pipeline: RAGPipeline = state["pipeline"]
+    fixed = repair_mermaid(req.code, req.error, pipeline.llm)
+    if not fixed:
+        raise HTTPException(status_code=422, detail="Diagram could not be repaired.")
+    return {"code": fixed}
+
+
+@app.get("/gpu")
+def gpu():
+    """Télémétrie GPU en direct (utilisation, VRAM, température, puissance)."""
+    from rag_devops.gpu import gpu_stats
+
+    pipeline: RAGPipeline | None = state.get("pipeline")
+    return {**gpu_stats(), "model_loaded": bool(pipeline and pipeline.llm.loaded),
+            "progress": pipeline.progress if pipeline else None}  # étape réelle (mode étude)
 
 
 @app.post("/summarize")

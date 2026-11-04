@@ -51,6 +51,8 @@ export RAG_CORPUS_DIR="/chemin/vers/mon/corpus"
 
 ### 0. Lakehouse (stockage des documents)
 
+> 📘 Step-by-step guide (formats, PDFs, domains, troubleshooting): [docs/ingesting-documents.md](docs/ingesting-documents.md)
+
 Le lakehouse (stockage objet S3 + tables Apache Iceberg) est la source de vérité des
 documents dont l'assistant apprend. Sans conteneur S3 démarré, il bascule
 automatiquement sur un entrepôt Iceberg **local** (`data/lakehouse/`).
@@ -137,6 +139,8 @@ RAG_LLM_ADAPTER=auto uv run uvicorn api.main:app --port 8000   # sert le modèle
 | `RAG_SCOPE_GUARD` | `1` | garde-fou anti-hors-sujet (refuse hors ingénierie logicielle) |
 | `RAG_SCOPE_MARGIN` | `0.0` | seuil contrastif in-domaine / hors-sujet |
 | `RAG_DOMAINS` | *(liste)* | périmètre d'expertise (CSV) — élargit le garde-fou |
+| `RAG_ANALOGIES` | `1` | analogie à la Feynman, étiquetée, dans les réponses ancrées |
+| `RAG_OCR` | `auto` | OCR des pages scannées : `auto` \| `force` \| `off` |
 
 ## Le professeur, le Graph-RAG et le garde-fou
 
@@ -152,6 +156,16 @@ RAG_LLM_ADAPTER=auto uv run uvicorn api.main:app --port 8000   # sert le modèle
   et marche identiquement en **EN / ES / FR / DE**.
 - **Multilingue** — la langue de la question (EN/ES/FR/DE) est détectée et imposée
   à la génération, même quand le contexte récupéré est dans une autre langue.
+
+- **Mode étude** — « résume le chapitre 2 de Inference Engineering » : la partie demandée
+  est lue en entier, section par section (map → reduce), avec pages et citations.
+- **Diagrammes ancrés** — « explique visuellement… » : figure construite à partir de la
+  structure réelle du chapitre, ou de relations dont chaque composant figure dans les sources.
+- **Vérification phrase par phrase** — badge ✓/◐ sous chaque réponse ancrée ; les phrases
+  non soutenues par les sources sont soulignées.
+- **Ce qu'il sait** — `mise run knowledge` (domaines, sujets, livres à chapitres).
+
+Détails : [docs/asking-and-trusting-answers.md](docs/asking-and-trusting-answers.md).
 
 ### Ajouter un nouveau domaine (scalabilité)
 

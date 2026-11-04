@@ -14,6 +14,7 @@ from .config import Settings, settings
 # Extensions prises en charge.
 TEXT_EXTS = {".md", ".txt", ".sample"}
 PDF_EXTS = {".pdf"}
+IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff", ".bmp"}  # via OCR
 
 
 @dataclass
@@ -31,14 +32,13 @@ class Chunk:
 # Extraction du texte
 # --------------------------------------------------------------------------
 def extract_pdf(path: Path) -> str:
-    """Extrait le texte d'un PDF via PyMuPDF (fitz)."""
-    import fitz  # PyMuPDF
+    """Extrait le texte d'un PDF via PyMuPDF ; les pages scannées passent par l'OCR."""
+    import pymupdf  # PyMuPDF (ancien nom du module : fitz)
 
-    parts: list[str] = []
-    with fitz.open(path) as doc:
-        for page in doc:
-            parts.append(page.get_text("text"))
-    return "\n".join(parts)
+    from .ocr import pdf_text
+
+    with pymupdf.open(path) as doc:
+        return pdf_text(doc)[0]
 
 
 def extract_text_file(path: Path) -> str:
@@ -51,6 +51,10 @@ def load_raw(path: Path) -> str:
         return extract_pdf(path)
     if ext in TEXT_EXTS:
         return extract_text_file(path)
+    if ext in IMAGE_EXTS:
+        from .ocr import image_text
+
+        return image_text(path.read_bytes(), path.name)[0]
     return ""
 
 
@@ -120,8 +124,10 @@ def split_into_chunks(
 # --------------------------------------------------------------------------
 # Pipeline d'ingestion complet
 # --------------------------------------------------------------------------
-def discover_files(corpus_dir: Path) -> list[Path]:
-    exts = TEXT_EXTS | PDF_EXTS
+def discover_files(corpus_dir: Path, include_images: bool = False) -> list[Path]:
+    """Fichiers ingérables d'un dossier. Les images (OCR) sont opt-in : un coffre Obsidian
+    contient souvent des centaines de captures sans texte utile."""
+    exts = TEXT_EXTS | PDF_EXTS | (IMAGE_EXTS if include_images else set())
     files = [
         p
         for p in sorted(corpus_dir.rglob("*"))

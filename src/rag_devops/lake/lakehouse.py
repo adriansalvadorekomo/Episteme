@@ -14,7 +14,7 @@ from pathlib import Path
 import pyarrow as pa
 
 from ..config import Settings, settings
-from ..ingest import Chunk, PDF_EXTS, TEXT_EXTS, clean_text, discover_files, split_into_chunks
+from ..ingest import IMAGE_EXTS, Chunk, PDF_EXTS, TEXT_EXTS, clean_text, discover_files, split_into_chunks
 from . import catalog as cat
 from . import storage
 
@@ -22,17 +22,21 @@ from . import storage
 # --------------------------------------------------------------------------
 # Extraction de texte depuis des octets (sans passer par un fichier temporaire)
 # --------------------------------------------------------------------------
-def _extract(data: bytes, filename: str) -> str:
+def _extract(data: bytes, filename: str) -> tuple[str, int]:
+    """(texte, nb de pages reconnues par OCR). PDF : OCR des seules pages scannées ;
+    image : OCR complet ; texte : décodage."""
+    from ..ocr import image_text, pdf_text
+
     ext = Path(filename).suffix.lower()
     if ext in PDF_EXTS:
-        import fitz
+        import pymupdf
 
-        with fitz.open(stream=data, filetype="pdf") as doc:
-            return "\n".join(page.get_text("text") for page in doc)
-    if ext in TEXT_EXTS:
-        return data.decode("utf-8", errors="ignore")
-    # type inconnu : tentative de décodage texte
-    return data.decode("utf-8", errors="ignore")
+        with pymupdf.open(stream=data, filetype="pdf") as doc:
+            return pdf_text(doc)
+    if ext in IMAGE_EXTS:
+        return image_text(data, filename)
+    # texte (ou type inconnu : tentative de décodage)
+    return data.decode("utf-8", errors="ignore"), 0
 
 
 def _sha256(data: bytes) -> str:
@@ -110,10 +114,15 @@ def ingest_bytes(
         return {"status": "duplicate", "doc_id": sha,
                 "source": source or f"{domain or 'uploads'}/{filename}", "chunks_added": 0}
 
-    text = clean_text(_extract(data, filename))
+    raw, ocr_pages = _extract(data, filename)
+    text = clean_text(raw)
     pieces = split_into_chunks(text, cfg.chunk_size, cfg.chunk_overlap, cfg.min_chunk_chars)
+    if not pieces and len(text.strip()) >= 20:
+        # document court (photo de tableau blanc, slide) : le seuil anti-bruit vise les
+        # fragments d'un long document, pas un document entier → un seul chunk
+        pieces = [text.strip()]
     if not pieces:
-        return {"status": "empty", "doc_id": sha,
+        return {"status": "empty", "doc_id": sha, "ocr_pages": ocr_pages,
                 "source": source or f"{domain or 'uploads'}/{filename}", "chunks_added": 0}
 
     # Domaine assigné automatiquement par le système quand il n'est pas précisé.
@@ -149,7 +158,7 @@ def ingest_bytes(
     ]
     result = {
         "status": "ingested", "doc_id": sha, "source": source, "domain": domain,
-        "chunks_added": len(pieces), "chunks": new_chunks,
+        "chunks_added": len(pieces), "chunks": new_chunks, "ocr_pages": ocr_pages,
     }
 
     if do_index and store is not None:
@@ -180,6 +189,7 @@ def backfill_from_folder(
     verbose: bool = True,
     domain: str | None = None,
     do_rebuild: bool = True,
+    include_images: bool = False,
 ) -> dict:
     """Charge un dossier de corpus dans le lakehouse (BRONZE+SILVER), sans indexer.
 
@@ -190,8 +200,8 @@ def backfill_from_folder(
     """
     cfg = cfg or settings
     folder = Path(folder) if folder else cfg.corpus_dir
-    files = discover_files(folder)
-    ingested = dup = empty = 0
+    files = discover_files(folder, include_images=include_images)
+    ingested = dup = empty = ocr_pages = 0
     for fp in files:
         rel = fp.relative_to(folder)
         if domain:
@@ -203,11 +213,13 @@ def backfill_from_folder(
         ingested += res["status"] == "ingested"
         dup += res["status"] == "duplicate"
         empty += res["status"] == "empty"
-        if verbose and res["status"] != "ingested":
-            print(f"  {res['status']:<9} {source}")
-    out = {"files": len(files), "ingested": ingested, "duplicates": dup, "empty": empty}
+        ocr_pages += res.get("ocr_pages", 0)
+        if verbose and (res["status"] != "ingested" or res.get("ocr_pages")):
+            ocr = f"  (OCR {res['ocr_pages']} p.)" if res.get("ocr_pages") else ""
+            print(f"  {res['status']:<9} {source}{ocr}")
+    out = {"files": len(files), "ingested": ingested, "duplicates": dup, "empty": empty, "ocr_pages": ocr_pages}
     if verbose:
-        print(f"  → {folder.name}: {ingested} ingérés · {dup} doublons · {empty} vides")
+        print(f"  → {folder.name}: {ingested} ingérés · {dup} doublons · {empty} vides · OCR {ocr_pages} p.")
     if do_rebuild:
         out.update(rebuild_serving_index(cfg, verbose=verbose))
     return out
