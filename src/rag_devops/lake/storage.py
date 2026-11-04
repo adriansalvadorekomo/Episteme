@@ -137,3 +137,16 @@ def init_lakehouse(cfg: Settings | None = None) -> dict:
         "namespace": cfg.iceberg_namespace,
         "tables": sorted(t[-1] for t in catalog.list_tables(cfg.iceberg_namespace)),
     }
+
+
+def get_bronze(uri: str, cfg: Settings | None = None) -> bytes:
+    """Relit le fichier brut d'un document (BRONZE) depuis son URI s3:// ou file://."""
+    cfg = cfg or settings
+    if uri.startswith("s3://"):
+        bucket, key = uri[5:].split("/", 1)
+        return s3_client(cfg).get_object(Bucket=bucket, Key=key)["Body"].read()
+    from pathlib import Path
+    from urllib.parse import unquote, urlparse
+
+    path = unquote(urlparse(uri).path) if uri.startswith("file://") else uri
+    return Path(path).read_bytes()

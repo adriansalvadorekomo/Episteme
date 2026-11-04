@@ -109,7 +109,7 @@ import Logo from '../components/Logo.astro';
                 <button type="button" id="attachBtn" class="attach" aria-label="Add a document to the assistant's knowledge" title="Add a document the assistant can read">
                   <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
                 </button>
-                <input type="file" id="composerFile" accept=".pdf,.md,.txt" multiple hidden />
+                <input type="file" id="composerFile" accept=".pdf,.md,.txt,.png,.jpg,.jpeg,.webp" multiple hidden />
                 <button type="button" id="visualBtn" class="vis-toggle" aria-pressed="false" title="Always answer with a diagram (asking “explain visually…” works too)">
                   <svg class="vis-ico" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 21 12 12 21 3 12Z"/></svg>
                   <span>Visual</span>
@@ -299,11 +299,11 @@ import Logo from '../components/Logo.astro';
           </p>
 
           <label class="kb-drop" id="kbDrop">
-            <input type="file" id="kbFile" accept=".pdf,.md,.txt" multiple hidden />
+            <input type="file" id="kbFile" accept=".pdf,.md,.txt,.png,.jpg,.jpeg,.webp" multiple hidden />
             <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5-5 5 5"/><path d="M12 5v12"/></svg>
             <span class="kb-drop-t">Drag a file here, or</span>
             <span class="kb-import">Import documents</span>
-            <span class="kb-drop-s label">PDF · Markdown · TXT — topic detected automatically</span>
+            <span class="kb-drop-s label">PDF · Markdown · TXT · images — scans are read with OCR, topic detected automatically</span>
           </label>
           <div class="kb-queue" id="kbQueue"></div>
 
@@ -555,6 +555,18 @@ import Logo from '../components/Logo.astro';
       .chip.grounded { color: var(--accent-rag); background: color-mix(in oklab, var(--accent-rag) 14%, transparent); border: 1px solid color-mix(in oklab, var(--accent-rag) 40%, transparent); }
       .chip.ungrounded { color: var(--accent-llm); background: color-mix(in oklab, var(--accent-llm) 12%, transparent); border: 1px solid color-mix(in oklab, var(--accent-llm) 38%, transparent); }
       .chip.scope { color: var(--muted); background: var(--surface-2); border: 1px solid var(--line); }
+      .chip.verified { margin-inline-start: 0.4rem; color: #7ed4a6; background: rgb(126 212 166 / 0.1); border: 1px solid rgb(126 212 166 / 0.35); }
+      .chip.checkable { margin-inline-start: 0.4rem; color: #ffb74d; background: rgb(255 183 77 / 0.1); border: 1px solid rgb(255 183 77 / 0.35); }
+      .chip.verified::before, .chip.checkable::before { display: none; }
+      .answer .unverified { text-decoration: underline dotted rgb(255 183 77 / 0.75); text-decoration-thickness: 1.5px; text-underline-offset: 4px; cursor: help; }
+      .checks { margin-block: var(--s2) 0; padding: 0.55rem 0.8rem; border: 1px solid rgb(255 183 77 / 0.25); border-radius: 8px; background: rgb(255 183 77 / 0.04); }
+      .checks-sum { cursor: pointer; list-style: none; font-family: var(--mono); font-size: var(--fs--1); letter-spacing: 0.08em; text-transform: uppercase; color: #ffb74d; }
+      .checks-sum::-webkit-details-marker { display: none; }
+      .checks-sum::before { content: "▸ "; } details[open] > .checks-sum::before { content: "▾ "; }
+      .checks ul { margin: 0.5rem 0 0; padding: 0; list-style: none; display: grid; gap: 0.45rem; }
+      .check-jump { appearance: none; display: block; text-align: start; padding: 0; border: 0; background: none; color: var(--fg); font: inherit; font-size: 0.86em; cursor: pointer; }
+      .check-jump:hover { text-decoration: underline; }
+      .check-why { display: block; font-family: var(--mono); font-size: 0.68rem; color: var(--muted); margin-block-start: 0.1rem; }
       .chip::before { content: ""; inline-size: 6px; block-size: 6px; border-radius: 50%; background: currentColor; }
 
       /* answer markdown */
@@ -1135,6 +1147,27 @@ import Logo from '../components/Logo.astro';
         });
       }
 
+      // statements the sources don't confirm: dotted highlight + reason on hover; the
+      // "to double-check" list jumps to each one
+      const normTxt = (t) => t.toLowerCase().replace(/\[\d+\]/g, ' ').replace(/[^a-z0-9à-ÿ]+/g, ' ').trim();
+      function markUnverified(el, flagged) {
+        const blocks = $$('.answer p, .answer li', el);
+        flagged.forEach((u, k) => {
+          const key = normTxt(u.text.replace(/[*_`]/g, '')).slice(0, 48);
+          const hit = key && blocks.find((b) => normTxt(b.textContent).includes(key));
+          if (!hit) return;
+          hit.classList.add('unverified');
+          hit.title = `Not confirmed by the sources — ${u.reason}`;
+          hit.dataset.check = k;
+        });
+        $$('.check-jump', el).forEach((b) => b.addEventListener('click', () => {
+          const target = $(`.unverified[data-check="${b.dataset.k}"]`, el);
+          if (!target) return;
+          target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          if (!RM) gsap.fromTo(target, { backgroundColor: 'rgba(255,183,77,0.28)' }, { backgroundColor: 'rgba(255,183,77,0)', duration: 1.4, ease: 'power2.out', clearProps: 'backgroundColor' });
+        }));
+      }
+
       function renderMsg(m, i) {
         const el = document.createElement('div');
         el.className = 'msg ' + m.role;
@@ -1148,7 +1181,7 @@ import Logo from '../components/Logo.astro';
         const chip = m.pending ? ''
           : m.method === 'scope' ? '<span class="chip scope">OUT OF SCOPE</span>'
           : m.method === 'idk' ? '<span class="chip scope">NOT IN CORPUS</span>'
-          : m.grounded ? `<span class="chip grounded">GROUNDED · ${m.method === 'graph' ? 'GRAPH-RAG' : 'RAG'}</span>`
+          : m.grounded ? `<span class="chip grounded">GROUNDED · ${m.method === 'study' ? 'FULL READ' : m.method === 'graph' ? 'GRAPH-RAG' : 'RAG'}</span>`
           : '<span class="chip ungrounded">UNGROUNDED · INTUITION</span>';
         const label = `<span class="label msg-role"><span class="dot"></span>ASSISTANT · ${(m.mode || 'llm').toUpperCase()}</span>`;
         const bodyHtml = m.pending
@@ -1166,7 +1199,13 @@ import Logo from '../components/Logo.astro';
               <div class="src-card" data-n="${s.n}"><div class="src-head"><span class="src-n">[${s.n}]</span><span class="src-path">${esc(s.source)}</span><span class="src-score">${s.score ?? ''}</span></div><p class="src-snip">${esc(s.text || '')}</p></div>`).join('')}</div></details>`;
         }
         const acts = !m.pending && !m.error && m.content ? actionsHtml(['copy', 'share']) : '';
-        el.innerHTML = `${label}<div class="body"><div class="answer">${chip}${bodyHtml}</div>${receipt}${sources}</div>${acts}`;
+        const v = !m.pending && !m.error ? m.verification : null;
+        const flagged = v?.unsupported || [];
+        const vchip = v ? `<span class="chip ${flagged.length ? 'checkable' : 'verified'}" title="Each statement was checked against the cited sources">${flagged.length ? '◐' : '✓'} VERIFIED ${v.supported}/${v.claims}</span>` : '';
+        const checks = flagged.length ? `<details class="checks"><summary class="checks-sum">${flagged.length} statement${flagged.length > 1 ? 's' : ''} to double-check</summary><ul>${
+          flagged.map((u, k) => `<li><button type="button" class="check-jump" data-k="${k}">${esc(u.text.replace(/[*_`]/g, '').slice(0, 140))}</button><span class="check-why">${esc(u.reason)}</span></li>`).join('')}</ul></details>` : '';
+        el.innerHTML = `${label}<div class="body"><div class="answer">${chip}${vchip}${bodyHtml}</div>${checks}${receipt}${sources}</div>${acts}`;
+        if (flagged.length) markUnverified(el, flagged);
         if (m.pending && lastGpu) paintGpu(el, lastGpu, false);
         if (!m.pending && !m.error) buildFigures(el);
         if (acts) wireActions(el);
@@ -1231,7 +1270,11 @@ import Logo from '../components/Logo.astro';
           if (live) {
             const loading = s.model_loaded === false;
             if (loading && !live.loading) swapVerb('Loading model weights…');
-            live.loading = loading;
+            // real progress from the server (chapter mode) replaces the rotating verbs
+            const p = s.progress;
+            const step = p ? `${p.step}${p.n > 1 ? ` · ${p.i}/${p.n}` : ''}…` : null;
+            if (step && step !== live.verbText) swapVerb(step);
+            live.loading = loading || !!step;
           }
         } catch {}
       }
@@ -1322,7 +1365,7 @@ import Logo from '../components/Logo.astro';
           const r = await fetch('/api/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: q, mode, top_k: S.profile.topK, history, visual }) });
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
           const d = await r.json();
-          Object.assign(aMsg, { pending: false, content: d.answer, grounded: d.grounded, method: d.method, sources: d.sources || [], metrics: d.metrics || {} });
+          Object.assign(aMsg, { pending: false, content: d.answer, grounded: d.grounded, method: d.method, sources: d.sources || [], metrics: d.metrics || {}, verification: d.verification || null });
         } catch (e) {
           Object.assign(aMsg, { pending: false, error: (e && e.message) || String(e), content: '' });
         } finally {
@@ -1781,8 +1824,9 @@ import Logo from '../components/Logo.astro';
           try {
             const d = await ingestFile(f);
             if (d.status === 'ingested') {
-              if (row) { row.className = 'kb-item ok'; $('.st', row).textContent = `+${d.chunks_added} · ${d.domain}`; }
-              if (chip) settleChip(chip, 'ok', `added to ${d.domain}`);
+              const ocrNote = d.ocr_pages ? ` · OCR ${d.ocr_pages}p` : '';
+              if (row) { row.className = 'kb-item ok'; $('.st', row).textContent = `+${d.chunks_added} · ${d.domain}${ocrNote}`; }
+              if (chip) settleChip(chip, 'ok', `added to ${d.domain}${ocrNote}`);
             } else if (d.status === 'duplicate') {
               if (row) { row.className = 'kb-item dup'; $('.st', row).textContent = 'already added'; }
               if (chip) settleChip(chip, 'dup', 'already known');

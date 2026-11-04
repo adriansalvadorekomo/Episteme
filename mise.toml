@@ -14,6 +14,63 @@
 RAG_LAKEHOUSE_BACKEND = "auto"
 RAG_S3_ENDPOINT = "http://localhost:9000"
 
+# ── Aide ─────────────────────────────────────────────────────────────────
+[tasks.help]
+description = "Guide des commandes du projet, par étape (mise run help)"
+quiet = true
+run = """
+cat <<'HELP'
+
+  EPISTEME · Engineering Knowledge Intelligence — commands
+  ─────────────────────────────────────────────────────────
+
+  FIRST TIME
+    mise run install            Python (uv) + web (pnpm) dependencies
+    mise run ocr:setup          OCR models eng/fra/spa/deu for scanned PDFs & images
+    mise run lake:up            start the S3 object store (optional — local storage otherwise)
+    mise run lake:init          create the bucket + Iceberg tables
+
+  ADD KNOWLEDGE
+    mise run inspect -- FILE    what WOULD happen: text / scanned / mixed PDF, OCR pages,
+                                volume, domain, duplicate — writes nothing
+    mise run ingest  -- FILE --domain NAME
+                                one file (PDF, Markdown, text, image), indexed incrementally
+    mise run ingest  -- --sync FOLDER/ [--domain NAME] [--with-images]
+                                a whole folder; without --domain, top-level subfolder = domain
+    mise run lake:status        backend + number of documents / chunks
+    mise run knowledge          what Episteme knows: domains, topics, books with chapters
+    mise run lake:rebuild       rebuild the search index + knowledge graph from the lakehouse
+    → restart the API after ingesting from the CLI (web uploads are indexed live)
+
+  USE IT
+    mise run dev                API + web together → http://localhost:4321
+    mise run api                API only           → http://localhost:8000/docs
+    mise run web                web only
+    mise run ask -- "QUESTION"  one question from the terminal
+    mise run smoke              is the API answering?
+    In the chat:  "Summarize chapter 1 of Inference Engineering"   whole chapter, section by section
+                  "Explain visually the part about pods in the Kubernetes Notes"   + diagram
+                  ✓/◐ under each answer = sentences checked against your documents
+
+  EXTRAS
+    mise run notebook           the course notebook (Jupyter Lab)
+    mise run install:finetune   QLoRA dependencies
+    mise run finetune           fine-tune the LLM on the lakehouse (stop the API first)
+    mise run lake:down          stop the S3 object store
+
+  EXAMPLES
+    mise run inspect -- "$HOME/Obsedian Vaults/outsmarted/0 - Inbox/Inference Engineering.pdf"
+    mise run ingest  -- "$HOME/Notes/Big Data 0.pdf" --domain big-data
+    mise run ingest  -- --sync "$HOME/Notes/data-engineering/" --domain data-engineering
+
+  MORE
+    mise tasks                  every task, one line each
+    docs/ingesting-documents.md formats, OCR, domains, troubleshooting
+    docs/asking-and-trusting-answers.md   chapter mode, diagrams, verification badge
+
+HELP
+"""
+
 # ── Installation ────────────────────────────────────────────────────────
 [tasks.install]
 description = "Installe les dépendances Python (uv) et web (pnpm)"
@@ -50,6 +107,28 @@ run = "uv run rag-lakehouse rebuild"
 [tasks."lake:status"]
 description = "Affiche le backend + le nombre de documents/chunks"
 run = "uv run rag-lakehouse status"
+
+[tasks."ocr:setup"]
+description = "Installe les modèles OCR eng/fra/spa/deu (Tesseract « fast ») dans data/tessdata"
+run = """
+set -e
+mkdir -p data/tessdata
+for l in eng osd; do
+  [ -s /usr/share/tessdata/$l.traineddata ] && [ ! -s data/tessdata/$l.traineddata ] && cp /usr/share/tessdata/$l.traineddata data/tessdata/ || true
+done
+for l in eng fra spa deu; do
+  [ -s data/tessdata/$l.traineddata ] || curl -fsSL -o data/tessdata/$l.traineddata "https://github.com/tesseract-ocr/tessdata_fast/raw/main/$l.traineddata"
+done
+ls -lh data/tessdata
+"""
+
+[tasks.knowledge]
+description = "Ce que sait Episteme : domaines, documents, sujets distinctifs, livres à chapitres"
+run = "uv run --no-sync rag-lakehouse knowledge"
+
+[tasks.inspect]
+description = "Diagnostic avant ingestion, sans rien écrire : PDF texte/scanné/mixte, OCR ou non (ex. mise run inspect -- doc.pdf)"
+run = "uv run rag-ingest --dry-run"
 
 [tasks.ingest]
 description = "Ingère un ou des documents (ex. mise run ingest doc.pdf --domain data-eng)"

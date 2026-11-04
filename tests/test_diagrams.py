@@ -2,10 +2,15 @@
 import pytest
 
 from rag_devops.diagrams import (
+    attach_diagram,
+    build_mermaid,
     diagram_kind,
+    extract_diagram,
+    ground_edges,
     normalize_answer,
+    parse_edges,
     sanitize_mermaid,
-    visual_directive,
+    visual_hint,
     wants_visual,
 )
 
@@ -57,11 +62,6 @@ def test_diagram_kind():
     assert diagram_kind("diagrama del flujo de la petición HTTP paso a paso") == "sequence"
     assert diagram_kind("Explain visually a microservices architecture") == "flowchart"
 
-
-def test_directive_mentions_format_and_grounding():
-    d = visual_directive("flowchart", grounded=True)
-    assert "```mermaid" in d and "flowchart LR" in d and "CONTEXT" in d
-    assert "sequenceDiagram" in visual_directive("sequence")
 
 
 # ── nettoyage ────────────────────────────────────────────────────────────────
@@ -218,3 +218,104 @@ def test_long_lr_chain_turns_top_down():
     assert sanitize_mermaid(chain).startswith("flowchart TD")
     short = 'flowchart LR\n  a["A"] --> b["B"]\n  b --> c["C"]'
     assert sanitize_mermaid(short).startswith("flowchart LR")
+
+
+
+# ── diagrammes ancrés : le cas réel « Inference Engineering » ────────────────
+IE_ANSWER = (
+    "Inference engineering focuses on optimizing the production serving of generative models. "
+    "Requests from the application reach the inference server, which batches them on the GPU. "
+    "The runtime (for example vLLM or TensorRT-LLM) executes the model and streams tokens back. "
+    "Autoscaling adds GPU replicas when the request queue grows, and monitoring tracks latency "
+    "and throughput."
+)
+
+
+class FakeLLM:
+    def __init__(self, reply):
+        self.reply = reply
+    def generate(self, *a, **k):
+        return self.reply
+
+
+def test_hint_contains_no_copyable_example():
+    for kind in ("flowchart", "sequence"):
+        h = visual_hint(kind)
+        assert "```" not in h and "Orders" not in h and "API Gateway" not in h
+
+
+def test_parse_edges_tolerates_bullets_arrows_and_markup():
+    edges = parse_edges("1. **Application** -> Inference Server : sends requests\n"
+                        "- Inference Server → GPU : batches\nnoise line\nRuntime => Model\nA -> A : self")
+    assert edges == [("Application", "sends requests", "Inference Server"),
+                     ("Inference Server", "batches", "GPU"), ("Runtime", "", "Model")]
+
+
+def test_copied_example_is_rejected_for_inference_engineering():
+    copied = "Web App -> API Gateway : HTTPS\nAPI Gateway -> Orders Service : REST\nOrders Service -> Orders DB : SQL"
+    res = extract_diagram(IE_ANSWER, "", FakeLLM(copied))
+    assert res["code"] is None and res["kept"] == 0 and res["rejected"] == 3
+
+
+def test_grounded_relations_build_a_valid_diagram():
+    reply = ("Application -> Inference Server : sends requests\n"
+             "Inference Server -> GPU : batches requests\n"
+             "Runtime -> Model : executes\n"
+             "Autoscaling -> GPU replicas : adds\n"
+             "Monitoring -> Latency : tracks\n"
+             "Kafka Cluster -> Orders DB : invented")          # inventé → rejeté
+    res = extract_diagram(IE_ANSWER, "", FakeLLM(reply))
+    assert res["kept"] == 5 and res["rejected"] == 1
+    code = res["code"]
+    assert code.startswith("flowchart") and '"Inference Server"' in code and "Kafka" not in code
+    assert code.count("-->") == 5
+
+
+def test_sequence_build():
+    code = build_mermaid([("Client", "POST /token", "Auth Server"), ("Auth Server", "access token", "Client")], "sequence")
+    assert code.startswith("sequenceDiagram") and "participant n1 as Client" in code and "n1->>n2: POST /token" in code
+
+
+def test_partial_grounding_threshold():
+    kept, rejected = ground_edges([("Inference Server", "", "GPU"), ("Quantum Router", "", "GPU")], IE_ANSWER)
+    assert kept == [("Inference Server", "", "GPU")] and rejected == 1
+
+
+def test_attach_places_figure_after_overview_or_notes_absence():
+    ans = "Overview paragraph.\n\n- detail one\n- detail two"
+    out = attach_diagram(ans, "flowchart LR\n  a --> b", "en")
+    assert out.index("Overview") < out.index("```mermaid") < out.index("detail one")
+    none = attach_diagram(ans + "\n\n```mermaid\nflowchart LR\n x --> y\n```", None, "fr")
+    assert "```mermaid" not in none and "Pas de diagramme" in none
+
+
+def test_copied_template_and_files_are_not_components():
+    from rag_devops.diagrams import ground_edges, parse_edges
+    assert parse_edges("Source -> Target : relation\nRuntime Optimization : Source -> Target : x") == []
+    ev = "The router sends requests to the GPU workers. Inference Engineering.pdf"
+    kept, _ = ground_edges([("router", "sends requests", "GPU workers"),
+                            ("GPU workers", "", "Inference Engineering.pdf")], ev)
+    assert kept == [("router", "sends requests", "GPU workers")]
+
+
+def test_ungrounded_relation_label_is_dropped_but_edge_kept():
+    from rag_devops.diagrams import ground_edges
+    ev = "The router sends requests to the GPU workers and the cache."
+    kept, _ = ground_edges([("router", "scales across clouds and regions", "GPU workers")], ev)
+    assert kept == [("router", "", "GPU workers")]
+
+
+def test_candidate_names_come_from_the_answer():
+    from rag_devops.diagrams import candidate_names
+    ans = "## Serving\n\n- **KV cache**: stores keys.\n- Batching: groups requests on the GPU.\n"
+    names = candidate_names(ans)
+    assert {"KV cache", "Batching", "GPU", "Serving"} <= set(names)
+
+
+def test_parallel_edges_are_merged_into_one_arrow():
+    from rag_devops.diagrams import ground_edges
+    ev = "Runtime optimization of a single model improves execution speed and memory usage."
+    kept, rejected = ground_edges([("Runtime optimization", "execution speed", "single model"),
+                                   ("Runtime optimization", "memory usage", "single model")], ev)
+    assert kept == [("Runtime optimization", "execution speed · memory usage", "single model")]
+    assert rejected == 0

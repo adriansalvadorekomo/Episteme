@@ -54,3 +54,7 @@ dev = [
     "pytest>=9.2.0",
 ]
 # torch via l'index PyPI standard (wheels CUDA 12 incluses sous Linux x86_64)
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["tests"]  # les tests partagent des aides (ex. test_ocr._scanned_pdf)

@@ -58,60 +58,24 @@ def diagram_kind(text: str) -> str:
 # --------------------------------------------------------------------------
 # 2. Consigne ajoutée au prompt (en fin, pour la récence)
 # --------------------------------------------------------------------------
-_EXAMPLE = {
-    "flowchart": (
-        "```mermaid\nflowchart LR\n"
-        "  subgraph Clients\n"
-        '    web["Web App"]\n'
-        "  end\n"
-        "  subgraph Backend\n"
-        '    gw["API Gateway"]\n'
-        '    svc["Orders Service"]\n'
-        "  end\n"
-        "  subgraph Data\n"
-        '    db[("Orders DB")]\n'
-        "  end\n"
-        "  web -->|HTTPS| gw\n"
-        "  gw -->|REST| svc\n"
-        "  svc -->|SQL| db\n```"
-    ),
-    "sequence": (
-        "```mermaid\nsequenceDiagram\n"
-        "  participant C as Client\n  participant A as API\n"
-        "  C->>A: POST /login\n  A-->>C: 200 + token\n```"
-    ),
+# Pas d'exemple de diagramme dans le prompt de réponse : un modèle de 1,5B le recopie
+# (« Web App → API Gateway → Orders DB » pour une question sur l'inférence…). La réponse
+# est écrite d'abord ; le diagramme est ensuite EXTRAIT de cette réponse et vérifié
+# (voir section 5), puis construit par le code.
+_HINT = {
+    "flowchart": ("VISUAL: a diagram will be generated from your explanation. Structure the "
+                  "answer around the concrete components of THIS topic and how they interact: "
+                  "name each component explicitly and say what flows between them. Do not draw "
+                  "a diagram yourself and do not write code blocks for it."),
+    "sequence": ("VISUAL: a sequence diagram will be generated from your explanation. Describe the "
+                 "interaction step by step, in order, naming who sends what to whom at each step. "
+                 "Do not draw a diagram yourself."),
 }
 
 
-_RULES = {
-    "flowchart": (
-        "Diagram rules: use the REAL components of the topic (not the example's); 5 to 12 "
-        "nodes; group them in 2-4 subgraphs by layer (clients, services, data…); label each "
-        "arrow with its protocol or action (HTTPS, gRPC, SQL, publish, deploy…); short ids; "
-        "every node label in double quotes; one arrow per line; NO style, classDef, linkStyle, "
-        "click or comment lines; no colors."
-    ),
-    "sequence": (
-        "Diagram rules: use the REAL participants of the topic (not the example's); 3 to 6 "
-        "participants; 4 to 12 messages, each labeled with the concrete action (POST /token, "
-        "302 redirect, verify signature…); `->>` for requests, `-->>` for responses; optionally "
-        "one `Note over X: …`; never repeat a message; NO style or comment lines."
-    ),
-}
-
-
-def visual_directive(kind: str = "flowchart", grounded: bool = False) -> str:
-    kind = kind if kind in _EXAMPLE else "flowchart"
-    header = "flowchart LR" if kind == "flowchart" else "sequenceDiagram"
-    rules = (
-        f"VISUAL: the user wants a visual explanation. Include exactly ONE diagram in a "
-        f"```mermaid code block using `{header}`, then explain it briefly. Example of the format:\n"
-        f"{_EXAMPLE[kind]}\n" + _RULES[kind]
-    )
-    if grounded:
-        rules += (" Only use components that appear in the CONTEXT; put citations [n] in the "
-                  "text, never inside the diagram.")
-    return rules
+def visual_hint(kind: str = "flowchart") -> str:
+    """Consigne ajoutée à la question en mode visuel (aucun exemple à recopier)."""
+    return _HINT.get(kind, _HINT["flowchart"])
 
 
 # --------------------------------------------------------------------------
@@ -455,3 +419,243 @@ def repair_mermaid(code: str, error: str, llm) -> str | None:
     fixed = llm.generate(_REPAIR_SYSTEM, user, max_new_tokens=400)
     m = _FENCE.search(fixed)
     return sanitize_mermaid(m["body"] if m else fixed)
+
+
+# --------------------------------------------------------------------------
+# 5. Diagrammes ANCRÉS : extraire → vérifier → construire
+# --------------------------------------------------------------------------
+# Le LLM ne dessine plus. Il liste des relations (« A -> B : verbe ») à partir de la
+# réponse déjà écrite ; chaque composant doit apparaître dans la réponse ou les sources,
+# sinon la relation est rejetée ; Episteme construit ensuite le Mermaid lui-même
+# (syntaxe toujours valide). Pas assez de relations vérifiées → pas de diagramme.
+import unicodedata
+
+# Un exemple d'un AUTRE domaine (café) : le petit modèle comprend le format au lieu de
+# recopier le gabarit « Source -> Target ». S'il recopie l'exemple, l'ancrage le rejette
+# (« Barista », « Espresso machine »… ne figurent ni dans la réponse ni dans les sources).
+_EDGE_EXAMPLE = {
+    "flowchart": ("Customer -> Cashier : places order\nCashier -> Barista : passes ticket\n"
+                  "Barista -> Espresso machine : brews coffee"),
+    "sequence": ("Customer -> Cashier : orders a latte\nCashier -> Barista : sends the ticket\n"
+                 "Barista -> Customer : serves the latte"),
+}
+_EDGE_SYSTEM = {
+    "flowchart": (
+        "You turn an explanation into a diagram specification: one relation per line, written as\n"
+        "<name> -> <name> : <relation of 1 to 4 words>\n"
+        "Use the NAMES listed (or other names copied exactly from the TEXT). Write 3 to 10 lines, "
+        "no numbering, nothing else. Never invent a name.\n"
+        "Format example, for an unrelated text about a coffee shop:\n" + _EDGE_EXAMPLE["flowchart"]
+    ),
+    "sequence": (
+        "You turn an explanation of an interaction into a sequence specification: one message per "
+        "line, in chronological order, written as\n<sender> -> <receiver> : <message of 2 to 6 words>\n"
+        "Use the NAMES listed (or other names copied exactly from the TEXT). Write 3 to 10 lines, "
+        "nothing else. Never invent a name.\n"
+        "Format example, for an unrelated text about a coffee shop:\n" + _EDGE_EXAMPLE["sequence"]
+    ),
+}
+_PLACEHOLDERS = {"source", "target", "sender", "receiver", "name", "component", "concept", "a", "b"}
+
+
+def candidate_names(text: str, limit: int = 14) -> list[str]:
+    """Noms que l'explication met elle-même en avant : termes en gras, titres, intitulés
+    de puces (« **KV cache** : … »), sigles. Ils servent de vocabulaire au diagramme."""
+    found = []
+    found += re.findall(r"\*\*([^*\n]{2,48})\*\*", text)
+    found += re.findall(r"^#{2,4}\s+(.+)$", text, re.M)
+    found += re.findall(r"^\s*(?:[-*•]|\d+[.)])\s+([^:\n*]{3,40}):", text, re.M)
+    found += re.findall(r"\b([A-Z]{2,6}s?)\b", text)
+    out, seen = [], set()
+    for f in found:
+        name = _clean_name(re.sub(r"\s*[·\[].*$", "", f))
+        key = _fold(name)
+        if not name or key in seen or len(name.split()) > 6 or key in _PLACEHOLDERS:
+            continue
+        seen.add(key)
+        out.append(name)
+    return out[:limit]
+
+
+_EDGE_LINE = re.compile(
+    r"^\s*(?:[-*•]|\d+[.)])?\s*(?P<a>[^\n:>→]+?)\s*(?:-{1,2}>|→|=>|->>)\s*(?P<b>[^\n:]+?)\s*(?::\s*(?P<label>.*?))?\s*$"
+)
+_STOPWORDS = set(
+    "the a an of to and or for in on with by from into via its their this that these those "
+    "le la les un une des de du et ou pour dans sur avec par en au aux "
+    "el los las unos unas del y o para con por en al "
+    "der die das ein eine und oder fur mit von zu im am".split()
+)
+_MIN_EDGES, _MAX_NODES = 2, 12
+
+
+def _fold(s: str) -> str:
+    """minuscules sans accents (système → systeme) pour comparer texte et labels."""
+    s = unicodedata.normalize("NFKD", s.lower())
+    return "".join(c for c in s if not unicodedata.combining(c))
+
+
+def _content_tokens(s: str) -> list[str]:
+    toks = re.findall(r"[a-z0-9][a-z0-9+#.-]*", _fold(s))
+    return [t.strip(".-") for t in toks if t.strip(".-") and t not in _STOPWORDS and len(t.strip(".-")) >= 2]
+
+
+def _clean_name(s: str) -> str:
+    s = re.sub(r"[`*_\"'\[\]{}()<>|]", " ", s)
+    s = re.sub(r"\s+", " ", s).strip(" .,;:-")
+    return s[:48]
+
+
+def parse_edges(text: str) -> list[tuple[str, str, str]]:
+    """Lit les lignes « A -> B : relation » (tolère puces, numéros, → et =>)."""
+    out, seen = [], set()
+    for line in (text or "").splitlines():
+        m = _EDGE_LINE.match(line)
+        if not m:
+            continue
+        a, b = _clean_name(m["a"]), _clean_name(m["b"])
+        label = _clean_name(m["label"] or "")
+        if len(label.split()) > 6:
+            label = " ".join(label.split()[:6])
+        if not a or not b or _fold(a) == _fold(b) or {_fold(a), _fold(b)} & _PLACEHOLDERS:
+            continue  # (gabarit recopié tel quel : « Source -> Target »)
+        key = (_fold(a), _fold(b), _fold(label))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append((a, label, b))
+    return out
+
+
+def is_grounded(name: str, evidence_tokens: set[str]) -> bool:
+    """Un composant est ancré si ≥ 60 % de ses mots significatifs figurent dans la preuve
+    (réponse + sources). Tolère pluriels simples (services/service)."""
+    toks = _content_tokens(name)
+    if not toks:
+        return False
+    def found(t: str) -> bool:
+        return t in evidence_tokens or t.rstrip("s") in evidence_tokens or (t + "s") in evidence_tokens
+    return sum(found(t) for t in toks) / len(toks) >= 0.6
+
+
+def ground_edges(edges, evidence: str) -> tuple[list[tuple[str, str, str]], int]:
+    """Garde les relations dont les deux extrémités sont ancrées ; (gardées, rejetées)."""
+    ev = set(_content_tokens(evidence))
+    kept = []
+    for a, lab, b in edges:
+        if not (is_grounded(a, ev) and is_grounded(b, ev)):
+            continue
+        if any(re.search(r"\.(pdf|md|txt|docx?)$", n, re.I) for n in (a, b)):
+            continue  # un fichier n'est pas un composant de l'explication
+        # relation : courte et ancrée, sinon on garde la flèche sans libellé inventé
+        if lab and (len(lab.split()) > 5 or not is_grounded(lab, ev)):
+            lab = ""
+        kept.append((a, lab, b))
+    dropped = len(edges) - len(kept)
+    # flèches parallèles (même paire) → une seule, libellés réunis : « vitesse · mémoire »
+    merged: dict[tuple[str, str], tuple[str, list[str], str]] = {}
+    for a, lab, b in kept:
+        key = (_fold(a), _fold(b))
+        if key not in merged:
+            merged[key] = (a, [], b)
+        if lab and _fold(lab) not in {_fold(x) for x in merged[key][1]}:
+            merged[key][1].append(lab)
+    kept = []
+    for a, labs, b in merged.values():
+        label = ""
+        for lab in labs:  # libellé lisible : 40 caractères au plus
+            cand = f"{label} · {lab}" if label else lab
+            if len(cand) > 40:
+                break
+            label = cand
+        kept.append((a, label, b))
+    # plafonne le nombre de nœuds distincts
+    nodes: list[str] = []
+    capped = []
+    for a, lab, b in kept:
+        new = [n for n in (a, b) if _fold(n) not in {_fold(x) for x in nodes}]
+        if len(nodes) + len(new) > _MAX_NODES:
+            continue
+        nodes += new
+        capped.append((a, lab, b))
+    return capped, dropped + len(kept) - len(capped)
+
+
+def build_mermaid(edges, kind: str = "flowchart") -> str | None:
+    """Construit le Mermaid à partir des relations (syntaxe garantie), puis le passe au
+    nettoyeur pour les formes sémantiques, rôles et la direction automatique."""
+    if not edges:
+        return None
+    ids: dict[str, str] = {}
+    def nid(name: str) -> str:
+        k = _fold(name)
+        if k not in ids:
+            ids[k] = f"n{len(ids) + 1}"
+        return ids[k]
+    if kind == "sequence":
+        lines, declared = ["sequenceDiagram"], set()
+        for a, _, b in edges:
+            for n in (a, b):
+                if nid(n) not in declared:
+                    declared.add(nid(n))
+                    lines.append(f"  participant {nid(n)} as {n.replace(';', ',')}")
+        for a, lab, b in edges:
+            lines.append(f"  {nid(a)}->>{nid(b)}: {(lab or '…').replace(';', ',')}")
+        return sanitize_mermaid("\n".join(lines))
+    lines, defined = ["flowchart LR"], set()
+    def ref(name: str) -> str:
+        i = nid(name)
+        if i in defined:
+            return i
+        defined.add(i)
+        return f'{i}["{name}"]'
+    for a, lab, b in edges:
+        arrow = f'-->|"{lab}"|' if lab else "-->"
+        lines.append(f"  {ref(a)} {arrow} {ref(b)}")
+    return sanitize_mermaid("\n".join(lines))
+
+
+_MERMAID_BLOCK = re.compile(r"```mermaid\n.*?```\n?", re.DOTALL)
+
+
+def strip_diagrams(answer: str) -> str:
+    """Retire tout diagramme écrit par le modèle (le seul diagramme est celui qu'on construit)."""
+    answer = normalize_answer(answer or "")
+    return re.sub(r"\n{3,}", "\n\n", _MERMAID_BLOCK.sub("", answer)).strip()
+
+
+def extract_diagram(answer: str, evidence: str, llm, kind: str = "flowchart") -> dict:
+    """Étape 2 du mode visuel. Renvoie {code|None, kept, rejected, raw}."""
+    body = strip_diagrams(answer)
+    names = candidate_names(body)
+    text = re.sub(r"[#*>`]", " ", body)[:3500]
+    listed = ("NAMES:\n" + "\n".join(f"- {n}" for n in names) + "\n\n") if len(names) >= 3 else ""
+    user = f"{listed}TEXT:\n{text}\n\nWrite the relations of this TEXT now."
+    raw = llm.generate(_EDGE_SYSTEM.get(kind, _EDGE_SYSTEM["flowchart"]), user,
+                       max_new_tokens=220, repetition_penalty=1.1)
+    edges = parse_edges(raw)
+    kept, rejected = ground_edges(edges, f"{answer}\n{evidence}")
+    nodes = {_fold(n) for a, _, b in kept for n in (a, b)}
+    code = build_mermaid(kept, kind) if len(kept) >= _MIN_EDGES and len(nodes) >= 3 else None
+    return {"code": code, "kept": len(kept), "rejected": rejected, "raw": raw}
+
+
+_NO_DIAGRAM = {
+    "en": "*◇ No diagram this time: the relations in this answer weren't explicit enough to draw one reliably.*",
+    "es": "*◇ Sin diagrama esta vez: las relaciones de esta respuesta no eran lo bastante explícitas para dibujarlas con fiabilidad.*",
+    "fr": "*◇ Pas de diagramme cette fois : les relations de cette réponse n'étaient pas assez explicites pour être dessinées de façon fiable.*",
+    "de": "*◇ Diesmal kein Diagramm: Die Beziehungen in dieser Antwort waren nicht eindeutig genug, um sie verlässlich zu zeichnen.*",
+}
+
+
+def attach_diagram(answer: str, code: str | None, lang: str = "en") -> str:
+    """Insère la figure après le premier paragraphe (vue d'ensemble → figure → détails),
+    ou une note honnête quand aucun diagramme fiable n'a pu être construit."""
+    body = strip_diagrams(answer)
+    if not code:
+        return f"{body}\n\n{_NO_DIAGRAM.get(lang, _NO_DIAGRAM['en'])}"
+    fig = f"```mermaid\n{code}\n```"
+    parts = body.split("\n\n", 1)
+    if len(parts) == 2 and not parts[0].lstrip().startswith(("#", "-", "*", "1.")):
+        return f"{parts[0]}\n\n{fig}\n\n{parts[1]}"
+    return f"{fig}\n\n{body}"

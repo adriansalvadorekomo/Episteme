@@ -178,6 +178,7 @@ def ask(req: AskRequest):
         "sources": result.sources,  # numérotées [n] : n, source, category, score, text
         "metrics": result.metrics,  # tokens, tok/s, gen_ms, retrieval_ms, peak VRAM…
         "visual": result.visual,    # la réponse contient un diagramme Mermaid
+        "verification": result.verification,  # {claims, supported, score, unsupported:[{text, reason}]}
     }
 
 
@@ -199,7 +200,8 @@ def gpu():
     from rag_devops.gpu import gpu_stats
 
     pipeline: RAGPipeline | None = state.get("pipeline")
-    return {**gpu_stats(), "model_loaded": bool(pipeline and pipeline.llm.loaded)}
+    return {**gpu_stats(), "model_loaded": bool(pipeline and pipeline.llm.loaded),
+            "progress": pipeline.progress if pipeline else None}  # étape réelle (mode étude)
 
 
 @app.post("/summarize")
