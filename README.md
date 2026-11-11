@@ -4,7 +4,7 @@ Assistant pédagogique (**professeur virtuel DevOps/MLOps**) qui répond aux que
 s'appuyant **uniquement** sur un corpus de cours, via une architecture
 **RAG** (Retrieval-Augmented Generation).
 
-> TP — *Développement d'un assistant LLM basé sur le RAG.* Livrable principal :
+> Projet personnel — *assistant LLM basé sur le RAG, conçu et développé seul.* Point d'entrée principal :
 > le notebook [`notebooks/rag_devops_assistant.ipynb`](notebooks/rag_devops_assistant.ipynb).
 
 ## Architecture
@@ -84,7 +84,7 @@ uv run rag-build                      # lit le corpus, embeddings, index -> data
 uv run rag-ask "C'est quoi un Pod Kubernetes ?"
 ```
 
-### 3. Notebook (livrable)
+### 3. Notebook (démo complète)
 
 ```bash
 uv run jupyter lab                    # ouvrir notebooks/rag_devops_assistant.ipynb
@@ -182,7 +182,7 @@ Aucun code à modifier : embeddings, graphe et garde-fou s'adaptent automatiquem
 
 ```
 .
-├── notebooks/rag_devops_assistant.ipynb   # ← livrable : toutes les étapes + démo
+├── notebooks/rag_devops_assistant.ipynb   # ← toutes les étapes + démo
 ├── src/rag_devops/                        # paquet réutilisable
 │   ├── config.py      # configuration centrale
 │   ├── ingest.py      # étape 1 — chargement, nettoyage, chunking
