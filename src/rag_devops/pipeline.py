@@ -611,8 +611,7 @@ class RAGPipeline:
         block = self._analogy_block(basis, lang)
         if not block:
             return answer
-        first, sep, rest = answer.partition("\n\n")
-        return f"{first}\n\n{block}\n\n{rest}" if sep else f"{answer}\n\n{block}"
+        return _insert_after_intro(answer, block)
 
     def _ensure_lang(self, lines: list[str], lang: str) -> list[str]:
         """Le petit modèle répond parfois dans la langue des SOURCES (anglais) malgré la
@@ -650,6 +649,21 @@ class RAGPipeline:
         flat = self._ensure_lang([flat], lang)[0]
         label = _ANALOGY_LABEL.get(lang, _ANALOGY_LABEL["en"])
         return f"> 💡 **{label}** {flat}"
+
+
+def _insert_after_intro(answer: str, block: str) -> str:
+    """Insère `block` après le premier paragraphe — sans séparer « … la commande suivante : »
+    de ce qu'il annonce, et jamais à l'intérieur d'un bloc de code."""
+    paras = answer.split("\n\n")
+    i, in_code = 0, False
+    while i < len(paras):
+        in_code ^= paras[i].count("```") % 2 == 1
+        if not in_code and not paras[i].rstrip().endswith(":"):
+            break
+        i += 1
+    if i >= len(paras) - 1:
+        return f"{answer}\n\n{block}"
+    return "\n\n".join(paras[:i + 1] + [block] + paras[i + 1:])
 
 
 # Alias de compatibilité (ancien nom du prompt système RAG).

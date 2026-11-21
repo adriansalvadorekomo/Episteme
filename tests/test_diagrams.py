@@ -319,3 +319,11 @@ def test_parallel_edges_are_merged_into_one_arrow():
                                    ("Runtime optimization", "memory usage", "single model")], ev)
     assert kept == [("Runtime optimization", "execution speed · memory usage", "single model")]
     assert rejected == 0
+
+
+def test_analogy_never_splits_an_intro_from_its_code_block():
+    from rag_devops.pipeline import _insert_after_intro
+    ans = "Use the following command:\n\n```bash\nkubectl expose deployment x\n\nmore\n```\n\nThis creates a Service."
+    out = _insert_after_intro(ans, "> 💡 A")
+    assert out.index("```bash") < out.index("> 💡 A") < out.index("This creates")
+    assert _insert_after_intro("Def.\n\nMore.", "> X") == "Def.\n\n> X\n\nMore."

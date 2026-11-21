@@ -14,6 +14,9 @@ export default defineConfig({
       // boolean true, not the string 'all'. Safe for local dev/demo only.
       allowedHosts: true,
       host: true,
+      // Port fixe : si 4321 est pris, échouer clairement plutôt que glisser sur 4322
+      // (le tunnel Cloudflare viserait alors un port vide → 502 Bad gateway).
+      strictPort: true,
       proxy: {
         '/api': {
           target: 'http://localhost:8000',

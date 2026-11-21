@@ -58,6 +58,8 @@ def lakehouse_cmd(argv: list[str] | None = None) -> None:
     parser.add_argument("action", choices=["init", "backfill", "rebuild", "status", "knowledge"])
     parser.add_argument("--no-books", action="store_true", help="knowledge : ne pas lister les livres à chapitres.")
     parser.add_argument("--folder", help="Dossier à migrer (backfill). Défaut : corpus_dir.")
+    parser.add_argument("--force", action="store_true",
+                        help="rebuild : accepter un index plus petit que l'actuel.")
     args = parser.parse_args(argv if argv is not None else sys.argv[1:])
     from . import lake
 
@@ -70,7 +72,7 @@ def lakehouse_cmd(argv: list[str] | None = None) -> None:
         print(lake.backfill_from_folder(args.folder, settings, verbose=True))
     elif args.action == "rebuild":
         print("Reconstruction de l'index de service depuis SILVER…")
-        print(lake.rebuild_serving_index(settings, verbose=True))
+        print(lake.rebuild_serving_index(settings, verbose=True, force=args.force))
     elif args.action == "status":
         print(lake.lakehouse_status(settings))
     elif args.action == "knowledge":
@@ -105,6 +107,15 @@ def ingest_cmd(argv: list[str] | None = None) -> None:
         _dry_run(files, args)
         return
 
+    from .lake.storage import s3_expected_but_down
+
+    if s3_expected_but_down(settings):
+        print("The S3 lakehouse isn't responding (start it with: mise run lake:up).\n"
+              "Nothing was written: ingesting now would go to the local fallback lakehouse, "
+              "not the one your index is built from.\n"
+              "(To really use local storage: RAG_LAKEHOUSE_BACKEND=local.)")
+        raise SystemExit(1)
+
     lake.init_lakehouse(settings)
 
     if args.sync:
@@ -129,28 +140,20 @@ def ingest_cmd(argv: list[str] | None = None) -> None:
         print(lake.rebuild_serving_index(settings, verbose=True))
         return
 
-    if len(files) == 1:
-        # incrémental : embeddings des seuls nouveaux chunks + ajout FAISS
-        from .graph import KnowledgeGraph
-        from .index import VectorStore
+    # un ou plusieurs fichiers : indexation incrémentale (embeddings des seuls nouveaux
+    # chunks, ajoutés à l'index existant), jamais de reconstruction complète
+    from .index import VectorStore
 
-        store = VectorStore.load(settings)
-        res = lake.ingest_path(files[0], args.domain, settings, store=store)
-        if res["status"] == "ingested":
-            store.save()
+    store = VectorStore.load(settings)
+    added = 0
+    for fp in files:
+        res = lake.ingest_path(fp, args.domain, settings, store=store)
+        added += res["status"] == "ingested"
         ocr = f", OCR {res['ocr_pages']} page(s)" if res.get("ocr_pages") else ""
-        print(res["status"], res["source"], f"(+{res['chunks_added']} chunks{ocr})")
-    else:
-        ingested = 0
-        for fp in files:
-            res = lake.ingest_path(fp, args.domain, settings, store=None)  # indexé par la reconstruction
-            ingested += res["status"] == "ingested"
-            print(f"  {res['status']:<9} {res['source']} (+{res['chunks_added']} chunks)")
-        if not ingested:
-            print("Rien de nouveau : index inchangé.")
-            return
-        print("Reconstruction de l'index…")
-        print(lake.rebuild_serving_index(settings, verbose=True))
+        print(f"  {res['status']:<9} {res['source']} (+{res['chunks_added']} chunks{ocr})")
+    if added:
+        store.save()
+        print(f"index: {len(store.chunks)} chunks — restart the API to use them (web uploads are live)")
 
 
 def _dry_run(files, args) -> None:

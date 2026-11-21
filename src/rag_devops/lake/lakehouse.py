@@ -7,6 +7,8 @@ incrémentale (on n'embedde que les nouveaux chunks).
 """
 from __future__ import annotations
 
+import json
+
 import hashlib
 from datetime import datetime
 from pathlib import Path
@@ -235,8 +237,19 @@ def _silver_chunks(cfg: Settings) -> list[Chunk]:
     ]
 
 
-def rebuild_serving_index(cfg: Settings | None = None, verbose: bool = True) -> dict:
-    """Reconstruit l'index FAISS + le graphe depuis la table SILVER (chunks)."""
+def _indexed_chunks(cfg: Settings) -> int:
+    try:
+        return int(json.loads(cfg.manifest_path.read_text(encoding="utf-8")).get("n_chunks", 0))
+    except Exception:
+        return 0
+
+
+def rebuild_serving_index(cfg: Settings | None = None, verbose: bool = True, force: bool = False) -> dict:
+    """Reconstruit l'index FAISS + le graphe depuis la table SILVER (chunks).
+
+    Garde-fou : si SILVER contient beaucoup moins de chunks que l'index actuel (moins de
+    la moitié), c'est presque toujours le mauvais lakehouse (S3 arrêté → backend local) :
+    on refuse, sauf `force=True` (`rag-lakehouse rebuild --force`)."""
     from ..graph import build_graph
     from ..index import VectorStore
 
@@ -244,6 +257,12 @@ def rebuild_serving_index(cfg: Settings | None = None, verbose: bool = True) -> 
     chunks = _silver_chunks(cfg)
     if not chunks:
         return {"chunks": 0, "note": "SILVER vide — rien à indexer"}
+    current = _indexed_chunks(cfg)
+    if not force and current and len(chunks) < current * 0.5:
+        return {"chunks": current, "refused": True,
+                "note": (f"refused: the lakehouse ({storage.resolve_backend(cfg)}) has {len(chunks)} chunks but the "
+                         f"index has {current}. Is the S3 store running (mise run lake:up)? "
+                         "Use `rag-lakehouse rebuild --force` if the smaller index is intended.")}
     store = VectorStore(cfg).build(chunks=chunks, verbose=verbose)
     store.save()
     graph = build_graph(store, cfg, verbose=verbose)
