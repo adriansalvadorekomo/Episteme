@@ -31,6 +31,15 @@ def _s3_reachable(cfg: Settings) -> bool:
         return False
 
 
+def s3_expected_but_down(cfg: Settings | None = None) -> bool:
+    """Mode « auto », un lakehouse S3 existe déjà (catalog-s3.db) mais le stockage S3 ne
+    répond pas : écrire maintenant irait dans un lakehouse local presque vide, et une
+    reconstruction remplacerait l'index complet par ce petit sous-ensemble."""
+    cfg = cfg or settings
+    return (cfg.lakehouse_backend == "auto" and (cfg.lakehouse_dir / "catalog-s3.db").exists()
+            and not _s3_reachable(cfg))
+
+
 def resolve_backend(cfg: Settings | None = None) -> str:
     cfg = cfg or settings
     if cfg.lakehouse_backend in ("s3", "local"):

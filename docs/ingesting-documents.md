@@ -30,7 +30,7 @@ flowchart TD
 ```
 
 - **BRONZE.** The original file, stored in the lakehouse: S3 (SeaweedFS) when it's running,
-  local storage otherwise. A file is identified by its sha256, so ingesting the same file
+  local storage otherwise (see [Keep S3 running](#keep-the-s3-store-running-once-you-use-it)). A file is identified by its sha256, so ingesting the same file
   twice is a no-op (`duplicate`).
 - **SILVER.** Cleaned text split into ~1000-character chunks that overlap by 180
   characters, so context isn't lost at the boundaries.
@@ -112,7 +112,7 @@ lakehouse** (an ingest would skip it as a duplicate). It works on folders too:
 ## Commands, in order
 
 ```bash
-# 1. (optional) start the S3 object store; without it the lakehouse uses local storage
+# 1. start the S3 object store (optional the very first time; required once you've used it)
 mise run lake:up
 
 # 2. one time only: create the bucket and the Iceberg tables
@@ -121,6 +121,7 @@ mise run lake:init
 # 3. ingest your documents
 mise run ingest -- path/to/note.md --domain data-engineering   # a single file
 mise run ingest -- "path/to/Big Data 0.pdf" --domain big-data   # PDFs too
+mise run ingest -- a.md b.md c.md --domain hedera              # several files, one domain
 mise run ingest -- --sync path/to/my-notes/ --domain big-data  # a whole folder, one domain
 mise run ingest -- --sync path/to/my-vault/                     # a whole folder, domain = subfolder
 
@@ -136,11 +137,26 @@ mise run dev          # API + web on http://localhost:4321
 > `mise run dev` (or `mise run api`) is restarted. Uploads made *in the web app* don't
 > need this: they're indexed live.
 
+### Keep the S3 store running once you use it
+
+The `auto` backend writes to S3 when it answers and to a **local** fallback otherwise, and
+each has its own catalog. If you have used S3 and its container stops (for example killed
+when memory runs low: `docker ps -a` shows `Exited (137)`), the local fallback is nearly
+empty. Two guards stop that from going wrong without you noticing:
+
+- `mise run ingest` **refuses to write** and prints `The S3 lakehouse isn't responding`;
+- `rag-lakehouse rebuild` **refuses to shrink the index** by more than half (for example
+  7,568 → 88 chunks) unless you pass `--force`.
+
+Run `mise run lake:up`, check `mise run lake:status` (it should show your full count, such
+as `550 documents · 7,568 chunks`), then ingest again. To work without S3 on purpose, pin
+`RAG_LAKEHOUSE_BACKEND=local`.
+
 ### Single file vs. folder
 
-| | `ingest -- file` | `ingest -- --sync folder/` |
+| | `ingest -- file [file…]` | `ingest -- --sync folder/` |
 |---|---|---|
-| Indexing | Incremental: only the new chunks are embedded | One full rebuild once all files are in (re-embeds everything), **skipped when nothing new was added** |
+| Indexing | Incremental: only the new chunks are embedded (one file or several) | One full rebuild once all files are in (re-embeds everything), **skipped when nothing new was added** |
 | Paths | `<domain>/<filename>` | `<domain>/<relative path>`, so `a/README.md` and `b/README.md` stay distinct |
 | Use it for | Adding a note or a PDF | First import of a vault, or many files at once |
 
@@ -189,6 +205,8 @@ marked **GROUNDED · GRAPH-RAG**, and its *Sources* list cites your file
 | `duplicate` | This exact file is already in the lakehouse | Nothing to do. An *edited* file has a new sha256 and is ingested as a new document |
 | New content isn't answered | API started before a CLI ingest | Restart the API (`mise run dev`) |
 | RAG says "I don't know" about a tool that *is* in your notes | The tool is mentioned in fewer than 3 chunks, so the guardrail treats it as not covered | Ingest more material on it, or lower `RAG_MIN_DF` |
+| `The S3 lakehouse isn't responding` | The S3 store was used before but is stopped. Ingest refuses rather than write to the near-empty local fallback | `mise run lake:up`, then ingest again |
+| `rebuild` answers `refused: the lakehouse has N chunks but the index has M` | The rebuild would shrink the index by more than half, which almost always means the wrong lakehouse (S3 down) | Start S3 (`mise run lake:up`); `uv run rag-lakehouse rebuild --force` only if the smaller index is intended |
 | Documents disappeared after starting/stopping S3 | The `auto` backend uses S3 when it's reachable and local storage otherwise; each has its own catalog | Pin one: `export RAG_LAKEHOUSE_BACKEND=s3` (or `local`) |
 
 ## Current limitations

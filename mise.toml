@@ -27,14 +27,15 @@ cat <<'HELP'
   FIRST TIME
     mise run install            Python (uv) + web (pnpm) dependencies
     mise run ocr:setup          OCR models eng/fra/spa/deu for scanned PDFs & images
-    mise run lake:up            start the S3 object store (optional — local storage otherwise)
+    mise run lake:up            start the S3 object store — keep it running once used
+                                (ingest refuses to write while it's down)
     mise run lake:init          create the bucket + Iceberg tables
 
   ADD KNOWLEDGE
     mise run inspect -- FILE    what WOULD happen: text / scanned / mixed PDF, OCR pages,
                                 volume, domain, duplicate — writes nothing
-    mise run ingest  -- FILE --domain NAME
-                                one file (PDF, Markdown, text, image), indexed incrementally
+    mise run ingest  -- FILE [FILE…] --domain NAME
+                                one or more files (PDF, Markdown, text, image), indexed incrementally
     mise run ingest  -- --sync FOLDER/ [--domain NAME] [--with-images]
                                 a whole folder; without --domain, top-level subfolder = domain
     mise run lake:status        backend + number of documents / chunks
