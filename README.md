@@ -13,22 +13,21 @@ statements your sources back and which they don't.
   <img src="docs/architecture/c4-container-light.svg" width="100%" alt="C4 container diagram of Episteme. A learner uses the Astro web app, which calls the FastAPI API and RAG engine; the engine runs Qwen2.5-1.5B on CUDA in-process, retrieves from a FAISS index and a kNN graph, and reads and writes a lakehouse made of SeaweedFS object storage (Bronze) and Apache Iceberg tables in a SQLite catalog (Silver). A Python CLI ingests course material with OCR, rebuilds the index and fine-tunes the model. Model weights come from the Hugging Face Hub; a Cloudflare Quick Tunnel exposes demos.">
 </picture>
 
-## Situation · Task · Action · Result · Learning
+## In short
 
-- **Situation.** A small local LLM answers fluently even when its sources don't support it,
-  and top-k retrieval reads only a few passages of a chapter, so chapter summaries skip
-  things.
-- **Task.** Build a study assistant that answers only from its course material, cites it,
-  and shows which sentences are not backed.
-- **Action.** Documents land in S3-compatible storage and Apache Iceberg tables
-  (Bronze / Silver), from which a FAISS index is rebuilt. Retrieval walks a similarity graph
-  (Graph-RAG), and a chapter mode reads whole chapters section by section. A local Qwen2.5
-  model is served behind FastAPI, and every answer is checked sentence by sentence against
-  its sources (96 pytest tests).
-- **Result.** On a 10-question test, **162 of 185 statements (88%) were backed** by the
-  sources, up from 78% before the verification-driven fixes.
-- **Learning.** A small model sounds sure either way, so the check has to be visible to the
-  reader, not hidden in a log.
+A small local LLM answers fluently even when its sources don't support it, and top-k retrieval reads only a few
+passages of a chapter, so chapter summaries skip things.
+
+I built a study assistant that answers only from its course material, cites it, and shows which sentences are not
+backed. Documents land in S3-compatible storage and Apache Iceberg tables (Bronze / Silver), from which a FAISS
+index is rebuilt. Retrieval walks a similarity graph (Graph-RAG), and a chapter mode reads whole chapters section by
+section. A local Qwen2.5 model is served behind FastAPI, and every answer is checked sentence by sentence against its
+sources (96 pytest tests).
+
+On a 10-question test, **162 of 185 statements (88%) were backed** by the sources, up from 78% before the
+verification-driven fixes.
+
+A small model sounds sure either way, so the check has to be visible to the reader, not hidden in a log.
 
 ## What it does
 
